@@ -2,7 +2,7 @@ package Importer;
 use strict;
 use warnings;
 
-our $VERSION = 0.001;
+our $VERSION = 0.002;
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
