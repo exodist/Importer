@@ -517,7 +517,7 @@ it you break EVERYTHING.
 
 =item Using a modules import() for exporting makes it hard to give it other purposes
 
-It is not unusual for a module to want to export symbols and prvide import
+It is not unusual for a module to want to export symbols and provide import
 behaviors. It is also not unusual for a consumer to only want 1 or the other.
 Using this module you can import symbols without also getting the C<import()>
 side effects.
@@ -530,8 +530,8 @@ subclass L<Exporter>, or bring in its C<import()> method.
 
 =item There are other exporter modules on cpan
 
-This module normally assumes an Exporter uses L<Exporter>, so it looks for the
-variables and method L<Exporter> expects. However, other exporters on cpan can
+This module normally assumes an exporter uses L<Exporter>, so it looks for the
+variables and methods L<Exporter> expects. However, other exporters on cpan can
 override this using the C<IMPORTER_MENU()> hook.
 
 =back
@@ -600,7 +600,7 @@ all symbols from the tag/patterm.
 =head2 @EXPORT_FAIL
 
 Use this to list subs that are not available on all platforms. If someone tries
-to import one of these, Importer will hit your C< $from->export_fail(@items) >
+to import one of these, Importer will hit your C<< $from->export_fail(@items) >>
 callback to try to resolve the issue. See L<Exporter.pm> for documentation of
 this feature.
 
@@ -623,7 +623,7 @@ string starting and ending with '/', or you can provide a C<qr/../> reference.
 
 =head2 EXLUDING SYMBOLS
 
-You can exlude symbols by prefixing them with '!'.
+You can exclude symbols by prefixing them with '!'.
 
     use Importer 'Some::Thing'
         '!foo',         # Exclude one specific symbol
@@ -633,7 +633,7 @@ You can exlude symbols by prefixing them with '!'.
 
 =head1 UNIMPORT PARAMETERS
 
-    no Importer;    # Remove all sub brought in with Importer
+    no Importer;    # Remove all subs brought in with Importer
 
     no Importer qw/foo bar/;    # Remove only the specified subs
 
