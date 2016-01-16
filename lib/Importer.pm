@@ -67,7 +67,7 @@ sub import_into {
     );
 
     $self->load_from() unless $INC{$self->from_file()};
-    $self->do_import($caller[0], @args);
+    $self->do_import($into, @args);
 }
 
 sub do_import {
@@ -198,8 +198,9 @@ sub get_caller {
     return $self->{caller} if $self->{caller};
 
     my $level = 1;
-    while(my @caller = caller($level)) {
+    while(my @caller = caller($level++)) {
         return \@caller if @caller && !$caller[0]->isa(__PACKAGE__);
+        last unless @caller;
     }
 
     # Fallback
@@ -223,6 +224,10 @@ sub carp {
 sub menu {
     my $self = shift;
     my ($into) = @_;
+
+    $self->croak("menu() requires the name of the destination package")
+        unless $into;
+
     my $for = $self->{menu_for};
     delete $self->{menu} if $for && $for ne $into;
     return $self->{menu} || $self->reload_menu($into);
@@ -231,13 +236,17 @@ sub menu {
 sub reload_menu {
     my $self = shift;
     my ($into) = @_;
-    my $from = $self->from;
 
-    # Hook, other exporter modules can define this method to be compatible with
-    # Importer.pm
+    $self->croak("reload_menu() requires the name of the destination package")
+        unless $into;
+
+    my $from = $self->from;
 
     my ($export, $export_ok, $export_tags, $export_fail, $generate);
     if ($from->can('IMPORTER_MENU')) {
+        # Hook, other exporter modules can define this method to be compatible with
+        # Importer.pm
+
         my %got = $from->IMPORTER_MENU($into, $self->get_caller);
         $export      = $got{export}      || [];
         $export_ok   = $got{export_ok}   || [];
@@ -304,8 +313,7 @@ sub parse_args {
 
     while(my $arg = shift @args) {
         my $lead = substr($arg, 0, 1);
-        my $exc  = $lead eq '!' ? 1 : 0;
-        my $spec;
+        my ($spec, $exc);
 
         # If the first character is an ASCII numeric then it is a version number
         if ($NUMERIC{$lead}) {
@@ -313,7 +321,9 @@ sub parse_args {
             next;
         }
 
-        if ($exc) {
+        if ($lead eq '!') {
+            my $exc = $lead;
+
             if ($arg eq '!') {
                 # If the current arg is just '!' then we are negating the next item.
                 $arg = shift;
@@ -321,14 +331,14 @@ sub parse_args {
             else {
                 # Strip off the '!'
                 substr($arg, 0, 1, '');
+
+                # Exporter.pm legacy behavior
+                # negated first item implies starting with default set:
+                unshift @args => ':DEFAULT' unless @import || keys %exclude || @versions;
             }
 
             # Now we have a new lead character
             $lead = substr($arg, 0, 1);
-
-            # Exporter.pm legacy behavior
-            # negated first item implies starting with default set:
-            unshift @args => ':DEFAULT' unless @import || keys %exclude;
         }
         else {
             # If the item is followed by a reference then they are asking us to
@@ -700,8 +710,6 @@ to support Importer by putting this sub in your package:
     }
 
     sub GENERATE {
-        my $class = shift;
-
         my ($symbol) = @_;
 
         ...
@@ -711,6 +719,147 @@ to support Importer by putting this sub in your package:
 
 All exports must be listed in either C<@EXPORT> or C<@EXPORT_OK> to be allowed.
 C<%EXPORT_TAGS>, C<@EXPORT_FAIL>, and C<\&GENERATE> are optional.
+
+B<Note:> If your GENERATE sub needs the C<$class>, C<$into>, or C<$caller> then
+your C<IMPORTER_MENU()> method will need to build an anonymous sub that closes
+over them:
+
+    sub IMPORTER_MENU {
+        my $class = shift;
+        my ($into, $caller) = @_;
+
+        return (
+            ...
+            generate => sub { $class->GENERATE($into, $caller, @_) },
+        );
+    }
+
+=head1 OO Interface
+
+    use Importer;
+
+    my $imp = Importer->new(from => 'Some::Exporter');
+
+    $imp->do_import('Destination::Package');
+    $imp->do_import('Another::Destination', @symbols);
+
+=head2 OBJECT CONSTRUCTION
+
+=over 4
+
+=item $imp = Importer->new(from => 'Some::Exporter')
+
+=item $imp = Importer->new(from => 'Some::Exporter', caller => [$package, $file, $line])
+
+This is how you create a new Importer instance. C<< from => 'Some::Exporter' >>
+is the only required argument. You may also specify the C<< caller => [...] >>
+arrayref, which will be used only for error reporting. If you do not specify a
+caller then Importer will attempt to find the caller dynamically every time it
+needs it (this is slow and expensive, but necessary if you intend to re-use the
+object.)
+
+=back
+
+=head2 OBJECT METHODS
+
+=over 4
+
+=item $imp->do_import($into)
+
+=item $imp->do_import($into, @symbols)
+
+This will import from the objects C<from> package into the C<$into> package.
+You can provide a list of C<@symbols>, or you can leave it empty for the
+defaults.
+
+=item $imp->do_unimport()
+
+=item $imp->do_unimport(@symbols)
+
+This will remove imported symbols from the objects C<from> package. If you
+specify a list of C<@symbols> then only the specified symbols will be removed,
+otherwise all symbols imported using Importer will be removed.
+
+B<Note:> Please be aware fo the difference between C<do_import()> and
+C<do_unimport()>. For import 'from' us used as the origin, in unimport it is
+used as the target. This means you cannot re-use an instance to import and then
+unimport.
+
+=item ($into, $versions, $exclude, $symbols) = $imp->parse_args('Dest::Package')
+
+=item ($into, $versions, $exclude, $symbols) = $imp->parse_args('Dest::Package', @symbols)
+
+This parses arguments. The first argument must be the destination package.
+Other arguments can be a mix of symbol names, tags, patterns, version numbers,
+and exclusions.
+
+=item $caller_ref = $imp->get_caller()
+
+This will find the caller. This is mainly used for error reporting. IF the
+object was constructed with a caller then that is what is returned, otherwise
+this will scan the stack looking for the first call that does not originate
+from a package that ISA Importer.
+
+=item $imp->carp($warning)
+
+Warn at the callers level.
+
+=item $imp->croak($exception)
+
+Die at the callers level.
+
+=item $from_package = $imp->from()
+
+Get the C<from> package that was specified at construction.
+
+=item $file = $imp->from_file()
+
+Get the filename for the C<from> package.
+
+=item $imp->load_from()
+
+This will load the C<from> package if it has not been loaded already. This uses
+some magic to ensure errors in the load process are reported to the C<caller>.
+
+=item $menu_hr = $imp->menu($into)
+
+Get the export menu built from, or provided by the C<from> package. This is
+cached after the first time it is called. Use C<< $imp->reload_menu() >> to
+refresh it.
+
+The menu structure looks like this:
+
+    $menu = {
+        # every valid export has a key in the lookup hashref, value is always
+        # 1, key always includes the sigil
+        lookup => {'&symbol_a' => 1, '$symbol_b' => 1, ...},
+
+        # most exports are listed here, symbol name with sigil is key, value is
+        # a reference to the symbol. If a symbol is missing it may be generated.
+        exports => {'&symbol_a' => \&symbol_a, '$symbol_b' => \$symbol_b, ...},
+
+        # Hashref of tags, tag name (without ':' prefix) is key, value is an
+        # arrayref of symbol names, subs may have a sigil, but are not required
+        # to.
+        tags => { DEFAULT => [...], foo => [...], ... },
+
+        # This is a hashref just like 'lookup'. Keys are symbols which may not
+        # always be available. If there are no symbols in this category then
+        # the value of the 'fail' key will be undef instead of a hashref.
+        fail => { '&iffy_symbol' => 1, '\&only_on_linux' => 1 },
+        # OR fail => undef,
+
+        # If present, this subroutine knows how to generate references for the
+        # symbols listed in 'lookup', but missing from 'exports'. References
+        # this returns are NEVER cached.
+        generate => sub { my $sym_name = shift; ...; return $symbol_ref },
+    };
+
+=item $imp->reload_menu($into)
+
+This will reload the export menu from the C<from> package.
+
+=back
 
 =head1 SOURCE
 
