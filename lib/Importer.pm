@@ -4,6 +4,8 @@ use warnings;
 
 our $VERSION = 0.002;
 
+our @EXPORT_OK = qw/exporter_import/;
+
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
     '$' => 'SCALAR',
@@ -17,14 +19,30 @@ my %IMPORTED;
 # This will be used to check if an import arg is a version number
 my %NUMERIC = map { $_ => 1 } 0 .. 9;
 
-sub _version_check {
-    my ($mod, $caller, @versions) = @_;
+# If a consumer just wants subs then we can optimize the import. This is used
+# as a lookup table to find non-optimal sigils. Can;t just look for '&' since a
+# sub can be listed without a sigil, so alpha-numerics may also be checked
+# against thi stable, and we want those to be considered optimal.
+my %NON_OPTIMAL = ( '$' => 1, '@' => 1, '%' => 1, '*' => 1 );
 
-    eval <<"    EOT" or die $@;
-#line $caller->[2] "$caller->[1]"
-\$mod->VERSION(\$_) for \@versions;
-1;
-    EOT
+sub exporter_import {
+    my $from = shift;
+
+    my @caller = caller(0);
+
+    return unless @_;
+
+    my $file = _mod_to_file($from);
+    _load_file(\@caller, $file) unless $INC{$file};
+
+    return if _optimal_import($from, $caller[0], @_);
+
+    my $self = __PACKAGE__->new(
+        from   => $from,
+        caller => \@caller,
+    );
+
+    $self->do_import($caller[0], @_);
 }
 
 sub import {
@@ -38,12 +56,16 @@ sub import {
 
     my ($from, @args) = @_;
 
+    my $file = _mod_to_file($from);
+    _load_file(\@caller, $file) unless $INC{$file};
+
+    return if _optimal_import($from, $caller[0], @args);
+
     my $self = $class->new(
         from   => $from,
         caller => \@caller,
     );
 
-    $self->load_from() unless $INC{$self->from_file()};
     $self->do_import($caller[0], @args);
 }
 
@@ -61,12 +83,16 @@ sub import_into {
         @caller = caller(0);
     }
 
+    my $file = _mod_to_file($from);
+    _load_file(\@caller, $file) unless $INC{$file};
+
+    return if _optimal_import($from, $into, @args);
+
     my $self = $class->new(
         from   => $from,
         caller => \@caller,
     );
 
-    $self->load_from() unless $INC{$self->from_file()};
     $self->do_import($into, @args);
 }
 
@@ -168,12 +194,7 @@ sub from { $_[0]->{from} }
 sub from_file {
     my $self = shift;
 
-    unless($self->{from_file}) {
-        my $file = $self->{from};
-        $file =~ s{::}{/}g;
-        $file .= '.pm';
-        return $self->{from_file} = $file;
-    }
+    $self->{from_file} ||= _mod_to_file($self->{from});
 
     return $self->{from_file};
 }
@@ -187,10 +208,7 @@ sub load_from {
 
     my $caller = $self->get_caller;
 
-    eval <<"    EOT" || die $@;
-#line $caller->[2] "$caller->[1]"
-require \$from_file;
-    EOT
+    _load_file($caller, $from_file);
 }
 
 sub get_caller {
@@ -242,17 +260,27 @@ sub reload_menu {
 
     my $from = $self->from;
 
-    my ($export, $export_ok, $export_tags, $export_fail, $generate);
+    my ($export, $export_ok, $export_tags, $export_fail, $generate, $export_gen, $export_anon, $new_style);
     if ($from->can('IMPORTER_MENU')) {
         # Hook, other exporter modules can define this method to be compatible with
         # Importer.pm
+
+        $new_style = 1;
 
         my %got = $from->IMPORTER_MENU($into, $self->get_caller);
         $export      = $got{export}      || [];
         $export_ok   = $got{export_ok}   || [];
         $export_tags = $got{export_tags} || {};
         $export_fail = $got{export_fail} || [];
-        $generate    = $got{generate};
+        $export_anon = $got{export_anon} || {};
+
+        $export_gen = $got{export_gen};
+        $generate   = $got{generate};
+
+        $self->croak("'$from' provides both 'generate' and 'export_gen' in its IMPORTER_MENU (They are exclusive, module must pick 1)")
+            if $export_gen && $generate;
+
+        $export_gen ||= {};
     }
     else {
         no strict 'refs';
@@ -261,18 +289,49 @@ sub reload_menu {
         $export_ok   = \@{"$from\::EXPORT_OK"};
         $export_tags = \%{"$from\::EXPORT_TAGS"};
         $export_fail = \@{"$from\::EXPORT_FAIL"};
+        $export_gen  = \%{"$from\::EXPORT_GEN"};
+        $export_anon = \%{"$from\::EXPORT_ANON"};
     }
 
-    my $exports = { map {
-        my ($sig, $name) = (m/^(\W?)(.*)$/);
+    $generate ||= sub {
+        my $symbol = shift;
+        my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
         $sig ||= '&';
-        my $slot = $SIG_TO_SLOT{$sig} || 'CODE';
+
+        my $do = $export_gen->{"${sig}${name}"};
+        $do ||= $export_gen->{$name} if !$sig || $sig eq '&';
+
+        return undef unless $do;
+
+        $from->$do($into, $symbol);
+    } if $export_gen && keys %$export_gen;
+
+    my $lookup = {};
+    my $exports = {};
+    for my $sym (@$export, @$export_ok, keys %$export_gen, keys %$export_anon) {
+        my ($sig, $name) = ($sym =~ m/^(\W?)(.*)$/);
+        $sig ||= '&';
+        my $slot = $SIG_TO_SLOT{$sig};
+
+        $lookup->{"${sig}${name}"} = 1;
+        $lookup->{$name} = 1 if $sig eq '&';
+
+        next if $export_gen->{"${sig}${name}"};
+        next if $sig eq '&' && $export_gen->{$name};
 
         no strict 'refs';
         no warnings 'once';
-        ("${sig}${name}" => $slot eq 'SCALAR' ? \${"$from\::$_"} : *{"$from\::$_"}{$slot});
-    } @$export, @$export_ok };
+        $exports->{"${sig}${name}"} = $export_anon->{$sym} || ($slot eq 'SCALAR' ? \${"$from\::$name"} : *{"$from\::$name"}{$slot});
+    }
 
+    my $f_import = $new_style || $from->can('import');
+    $self->croak("'$from' does not provide any exports")
+        unless $new_style
+            || keys %$exports
+            || $from->isa('Exporter')
+            || ($INC{'Exporter.pm'} && $f_import && $f_import == \&Exporter::import);
+
+    # Do not cleanup or normalize the list added to the DEFAULT tag, legacy....
     my $tags = {
         %$export_tags,
         'DEFAULT' => [ @$export ],
@@ -282,11 +341,9 @@ sub reload_menu {
         map {
             my ($sig, $name) = (m/^(\W?)(.*)$/);
             $sig ||= '&';
-            ("${sig}${name}" => 1)
+            ("${sig}${name}" => 1, $sig eq '&' ? ($name => 1) : ())
         } @$export_fail
     } : undef;
-
-    my $lookup = { map { $_ => 1 } @$export, @$export_ok };
 
     $self->{menu_for} = $into;
     return $self->{menu} = {
@@ -311,7 +368,8 @@ sub parse_args {
     my @import;
     my @versions;
 
-    while(my $arg = shift @args) {
+    while(my $full_arg = shift @args) {
+        my $arg = $full_arg;
         my $lead = substr($arg, 0, 1);
         my ($spec, $exc);
 
@@ -366,12 +424,16 @@ sub parse_args {
         }
 
         # Normalize list, always have a sigil
-        @list = map {m/^\W/ ? $_ : "\&$_" } @list;
+        my %seen;
+        @list = grep !$seen{$_}++, map {m/^\W/ ? $_ : "\&$_" } @list;
 
         if ($exc) {
             $exclude{$_} = 1 for @list;
         }
         else {
+            $self->croak("Cannot use '-as' to rename multiple symbols included by: $full_arg")
+                if $spec->{'-as'} && @list > 1;
+
             push @import => [$_, $spec] for @list;
         }
     }
@@ -431,7 +493,7 @@ sub _set_symbols {
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
-        my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
+        my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/);
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -440,7 +502,7 @@ sub _set_symbols {
         # Exporter.pm supported listing items in @EXPORT that are not actually
         # available for export. So if it is listed (lookup) but nothing is
         # there (!$ref) we simply skip it.
-        croak "$from does not export $symbol" unless $ref || $menu->{lookup}->{$name} || $menu->{lookup}->{$symbol};
+        croak "$from does not export $symbol" unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
         # Figure out the name they actually want it under
@@ -456,6 +518,69 @@ sub _set_symbols {
         # Set the symbol (finally!)
         $set_symbol->($name, $ref);
     }
+}
+
+#########################################################
+## The rest of these are utility functions, not methods!
+
+sub _version_check {
+    my ($mod, $caller, @versions) = @_;
+
+    eval <<"    EOT" or die $@;
+#line $caller->[2] "$caller->[1]"
+\$mod->VERSION(\$_) for \@versions;
+1;
+    EOT
+}
+
+sub _mod_to_file {
+    my $file = shift;
+    $file =~ s{::}{/}g;
+    $file .= '.pm';
+    return $file;
+}
+
+sub _load_file {
+    my ($caller, $file) = @_;
+
+    eval <<"    EOT" || die $@;
+#line $caller->[2] "$caller->[1]"
+require \$file;
+    EOT
+}
+
+sub _optimal_import {
+    my ($from, $into, @args) = @_;
+
+    my %final;
+    no strict 'refs';
+    return 0 if @{"$from\::EXPORT_FAIL"};
+    @args = @{"$from\::EXPORT"} unless @args;
+    my %allowed = map +($_ => 1), @{"$from\::EXPORT"}, @{"$from\::EXPORT_OK"};
+    use strict 'refs';
+
+    for my $arg (@args) {
+        # Get sigil, or first letter of name
+        my $sig = substr($arg, 0, 1);
+
+        # Return if non-sub sigil
+        return 0 if $NON_OPTIMAL{$sig};
+
+        # Strip sigil (if sub)
+        my $name = $arg;
+        substr($name, 0, 1, '') if $sig eq '&';
+
+        # Check if the name is allowed (with or without sigil)
+        return 0 unless $allowed{$name} || $allowed{$arg};
+
+        no strict 'refs';
+        $final{$name} = \&{"$from\::$name"};
+    }
+
+    no strict 'refs';
+    (*{"$into\::$_"} = $final{$_}, push @{$IMPORTED{$into}} => $_) for keys %final;
+
+    return 1;
 }
 
 1;
