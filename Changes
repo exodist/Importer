@@ -1,5 +1,10 @@
 {{$NEXT}}
 
+    - Optimized path for most-common import condition
+    - More testing
+    - Bug fixes
+    - Prototype Exporter.pm clone
+
 0.002     2016-01-16 15:09:11-08:00 America/Los_Angeles
 
     - Doc fixes
