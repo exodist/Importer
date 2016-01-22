@@ -57,7 +57,7 @@ addition to others.
 
 - Using a modules import() for exporting makes it hard to give it other purposes
 
-    It is not unusual for a module to want to export symbols and prvide import
+    It is not unusual for a module to want to export symbols and provide import
     behaviors. It is also not unusual for a consumer to only want 1 or the other.
     Using this module you can import symbols without also getting the `import()`
     side effects.
@@ -70,8 +70,8 @@ addition to others.
 
 - There are other exporter modules on cpan
 
-    This module normally assumes an Exporter uses [Exporter](https://metacpan.org/pod/Exporter), so it looks for the
-    variables and method [Exporter](https://metacpan.org/pod/Exporter) expects. However, other exporters on cpan can
+    This module normally assumes an exporter uses [Exporter](https://metacpan.org/pod/Exporter), so it looks for the
+    variables and methods [Exporter](https://metacpan.org/pod/Exporter) expects. However, other exporters on cpan can
     override this using the `IMPORTER_MENU()` hook.
 
 # COMPATABILITY
@@ -110,6 +110,31 @@ feature (like import renaming).
 
 # SUPPORTED FEATURES
 
+## TAGS
+
+You can define/import subsets of symbols using predefined tags.
+
+    use Importer 'Some::Thing' => ':tag';
+
+## /PATTERN/ or qr/PATTERN/
+
+You can import all symbols that match a pattern. The pattern can be supplied a
+string starting and ending with '/', or you can provide a `qr/../` reference.
+
+    use Importer 'Some::Thing' => '/oo/';
+
+    use Importer 'Some::Thing' => qr/oo/;
+
+## EXLUDING SYMBOLS
+
+You can exclude symbols by prefixing them with '!'.
+
+    use Importer 'Some::Thing'
+        '!foo',         # Exclude one specific symbol
+        '!/pattern/',   # Exclude all matching symbols
+        '!' => qr/oo/,  # Exclude all that match the following arg
+        '!:tag';        # Exclude all in tag
+
 ## RENAMING SYMBOLS AT IMPORT
 
 _This is a new feature,_ [Exporter](https://metacpan.org/pod/Exporter) _does not support this on its own._
@@ -131,12 +156,44 @@ Using this syntax to set prefix and/or postfix also works on tags and patterns
 that are specified for import, in which case the prefix/postfix is applied to
 all symbols from the tag/patterm.
 
-## @EXPORT\_FAIL
+## UNIMPORTING
 
-Use this to list subs that are not available on all platforms. If someone tries
-to import one of these, Importer will hit your ` $from-`export\_fail(@items) >
-callback to try to resolve the issue. See [Exporter.pm](https://metacpan.org/pod/Exporter.pm) for documentation of
-this feature.
+See ["UNIMPORT PARAMETERS"](#unimport-parameters).
+
+## ANONYMOUS EXPORTS
+
+See ["%EXPORT\_ANON"](#export_anon).
+
+## GENERATED EXPORTS
+
+See ["%EXPORT\_GEN"](#export_gen).
+
+# UNIMPORT PARAMETERS
+
+    no Importer;    # Remove all subs brought in with Importer
+
+    no Importer qw/foo bar/;    # Remove only the specified subs
+
+**Only subs can be unimported**.
+
+**You can only unimport subs imported using Importer**.
+
+# SUPPORTED VARIABLES
+
+## @EXPORT
+
+This is used exactly the way [Exporter](https://metacpan.org/pod/Exporter) uses it.
+
+List of symbols to export. Sigil is optional for subs. Symbols listed here are
+exported by default. If possible you should put symbols in `@EXPORT_OK`
+instead.
+
+## @EXPORT\_OK
+
+This is used exactly the way [Exporter](https://metacpan.org/pod/Exporter) uses it.
+
+List of symbols that can be imported. Sigil is optional for subs. Symbols
+listed here are not exported by default. This is preferred over `@EXPORT`.
 
 ## %EXPORT\_TAGS
 
@@ -146,34 +203,49 @@ This module supports tags exactly the way [Exporter](https://metacpan.org/pod/Ex
 
     use Importer 'Other::Thing' => ':some_tag';
 
-## /PATTERN/ or qr/PATTERN/
+## @EXPORT\_FAIL
 
-You can import all symbols that match a pattern. The pattern can be supplied a
-string starting and ending with '/', or you can provide a `qr/../` reference.
+This is used exactly the way [Exporter](https://metacpan.org/pod/Exporter) uses it.
 
-    use Importer 'Some::Thing' => '/oo/';
+Use this to list subs that are not available on all platforms. If someone tries
+to import one of these, Importer will hit your `$from->export_fail(@items)`
+callback to try to resolve the issue. See [Exporter.pm](https://metacpan.org/pod/Exporter.pm) for documentation of
+this feature.
 
-    use Importer 'Some::Thing' => qr/oo/;
+## %EXPORT\_ANON
 
-## EXLUDING SYMBOLS
+This is new to this module, [Exporter](https://metacpan.org/pod/Exporter) does not support it.
 
-You can exlude symbols by prefixing them with '!'.
+This allows you to export symbols that are not actually in your package symbol
+table. The keys should be the symbol names, the values are the references for
+the symbols.
 
-    use Importer 'Some::Thing'
-        '!foo',         # Exclude one specific symbol
-        '!/pattern/',   # Exclude all matching symbols
-        '!' => qr/oo/,  # Exclude all that match the following arg
-        '!:tag';        # Exclude all in tag
+    our %EXPORT_ANON = (
+        '&foo' => sub { 'foo' }
+        '$foo' => \$foo,
+        ...
+    );
 
-# UNIMPORT PARAMETERS
+## %EXPORT\_GEN
 
-    no Importer;    # Remove all sub brought in with Importer
+This is new to this module, [Exporter](https://metacpan.org/pod/Exporter) does not support it.
 
-    no Importer qw/foo bar/;    # Remove only the specified subs
+This allows you to export symbols that are generated on export. The key should
+be the name of a symbol. The value should be a coderef that produces a
+reference that will be exported.
 
-**Only subs can be unimported**.
+When the generators are called they will recieve 2 arguments, the package the
+symbol is being exported into, and the symbol being imported (name may or may
+not include sigil for subs).
 
-**You can only unimport subs imported using Importer**.
+    our %EXPORT_GEN = (
+        '&foo' => sub {
+            my ($into_package, $symbol_name) = @_;
+            ...
+            return sub { ... };
+        },
+        ...
+    );
 
 # CLASS METHODS
 
@@ -202,6 +274,13 @@ You can exlude symbols by prefixing them with '!'.
     This lets you remove imported symbols from `$from`. `$from` my be a package
     name, or a caller level.
 
+# GIVING YOUR PACKAGE AN OLD-SCHOOL IMPORT METHOD
+
+    package My::Exporter;
+    use Importer Importer => ('exporter_import' => {-as => 'import'});
+
+    ...
+
 # USING WITH OTHER EXPORTER IMPLEMENTATIONS
 
 If you want your module to work with Importer, but you use something other than
@@ -218,13 +297,17 @@ to support Importer by putting this sub in your package:
             export_ok   => \@EXPORT_OK,   # Other allowed exports
             export_tags => \%EXPORT_TAGS, # Define tags
             export_fail => \@EXPORT_FAIL, # For subs that may not always be available
+            export_anon => \%EXPORT_ANON, # Anonymous symbols to export
+
             generate    => \&GENERATE,    # Sub to generate dynamic exports
+            # OR
+            export_gen  => \%EXPORT_GEN,  # Hash of builders, key is symbol
+                                          # name, value is sub that generates
+                                          # the symbol ref.
         );
     }
 
     sub GENERATE {
-        my $class = shift;
-
         my ($symbol) = @_;
 
         ...
@@ -234,6 +317,135 @@ to support Importer by putting this sub in your package:
 
 All exports must be listed in either `@EXPORT` or `@EXPORT_OK` to be allowed.
 `%EXPORT_TAGS`, `@EXPORT_FAIL`, and `\&GENERATE` are optional.
+
+**Note:** If your GENERATE sub needs the `$class`, `$into`, or `$caller` then
+your `IMPORTER_MENU()` method will need to build an anonymous sub that closes
+over them:
+
+    sub IMPORTER_MENU {
+        my $class = shift;
+        my ($into, $caller) = @_;
+
+        return (
+            ...
+            generate => sub { $class->GENERATE($into, $caller, @_) },
+        );
+    }
+
+# OO Interface
+
+    use Importer;
+
+    my $imp = Importer->new(from => 'Some::Exporter');
+
+    $imp->do_import('Destination::Package');
+    $imp->do_import('Another::Destination', @symbols);
+
+## OBJECT CONSTRUCTION
+
+- $imp = Importer->new(from => 'Some::Exporter')
+- $imp = Importer->new(from => 'Some::Exporter', caller => \[$package, $file, $line\])
+
+    This is how you create a new Importer instance. `from => 'Some::Exporter'`
+    is the only required argument. You may also specify the `caller => [...]`
+    arrayref, which will be used only for error reporting. If you do not specify a
+    caller then Importer will attempt to find the caller dynamically every time it
+    needs it (this is slow and expensive, but necessary if you intend to re-use the
+    object.)
+
+## OBJECT METHODS
+
+- $imp->do\_import($into)
+- $imp->do\_import($into, @symbols)
+
+    This will import from the objects `from` package into the `$into` package.
+    You can provide a list of `@symbols`, or you can leave it empty for the
+    defaults.
+
+- $imp->do\_unimport()
+- $imp->do\_unimport(@symbols)
+
+    This will remove imported symbols from the objects `from` package. If you
+    specify a list of `@symbols` then only the specified symbols will be removed,
+    otherwise all symbols imported using Importer will be removed.
+
+    **Note:** Please be aware fo the difference between `do_import()` and
+    `do_unimport()`. For import 'from' us used as the origin, in unimport it is
+    used as the target. This means you cannot re-use an instance to import and then
+    unimport.
+
+- ($into, $versions, $exclude, $symbols) = $imp->parse\_args('Dest::Package')
+- ($into, $versions, $exclude, $symbols) = $imp->parse\_args('Dest::Package', @symbols)
+
+    This parses arguments. The first argument must be the destination package.
+    Other arguments can be a mix of symbol names, tags, patterns, version numbers,
+    and exclusions.
+
+- $caller\_ref = $imp->get\_caller()
+
+    This will find the caller. This is mainly used for error reporting. IF the
+    object was constructed with a caller then that is what is returned, otherwise
+    this will scan the stack looking for the first call that does not originate
+    from a package that ISA Importer.
+
+- $imp->carp($warning)
+
+    Warn at the callers level.
+
+- $imp->croak($exception)
+
+    Die at the callers level.
+
+- $from\_package = $imp->from()
+
+    Get the `from` package that was specified at construction.
+
+- $file = $imp->from\_file()
+
+    Get the filename for the `from` package.
+
+- $imp->load\_from()
+
+    This will load the `from` package if it has not been loaded already. This uses
+    some magic to ensure errors in the load process are reported to the `caller`.
+
+- $menu\_hr = $imp->menu($into)
+
+    Get the export menu built from, or provided by the `from` package. This is
+    cached after the first time it is called. Use `$imp->reload_menu()` to
+    refresh it.
+
+    The menu structure looks like this:
+
+        $menu = {
+            # every valid export has a key in the lookup hashref, value is always
+            # 1, key always includes the sigil
+            lookup => {'&symbol_a' => 1, '$symbol_b' => 1, ...},
+
+            # most exports are listed here, symbol name with sigil is key, value is
+            # a reference to the symbol. If a symbol is missing it may be generated.
+            exports => {'&symbol_a' => \&symbol_a, '$symbol_b' => \$symbol_b, ...},
+
+            # Hashref of tags, tag name (without ':' prefix) is key, value is an
+            # arrayref of symbol names, subs may have a sigil, but are not required
+            # to.
+            tags => { DEFAULT => [...], foo => [...], ... },
+
+            # This is a hashref just like 'lookup'. Keys are symbols which may not
+            # always be available. If there are no symbols in this category then
+            # the value of the 'fail' key will be undef instead of a hashref.
+            fail => { '&iffy_symbol' => 1, '\&only_on_linux' => 1 },
+            # OR fail => undef,
+
+            # If present, this subroutine knows how to generate references for the
+            # symbols listed in 'lookup', but missing from 'exports'. References
+            # this returns are NEVER cached.
+            generate => sub { my $sym_name = shift; ...; return $symbol_ref },
+        };
+
+- $imp->reload\_menu($into)
+
+    This will reload the export menu from the `from` package.
 
 # SOURCE
 

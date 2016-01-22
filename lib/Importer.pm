@@ -2,7 +2,7 @@ package Importer;
 use strict;
 use warnings;
 
-our $VERSION = 0.004;
+our $VERSION = 0.005;
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -508,7 +508,7 @@ sub _set_symbols {
 # on they will not.
 BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] }
 #line $caller->[2] "$caller->[1]"
-sub { *{"$into\::\$_[0]"} = \$_[1] }
+sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
     use strict 'refs';
 
@@ -617,7 +617,7 @@ sub _optimal_import {
 # their import redefines things.
 BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] };
 #line $caller->[2] "$caller->[1]"
-(*{"\$into\::\$_"} = \$final{\$_}, push \@{\$IMPORTED->{\$into}} => \$_) for keys %final;
+(*{"$into\\::\$_"} = \$final{\$_}, push \@{\$IMPORTED->{\$into}} => \$_) for keys %final;
 1;
     EOT
 }
