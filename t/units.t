@@ -310,12 +310,12 @@ subtest reload_menu => sub {
             sub __z { 'z' }
 
             # These are here to insure 'exports' does not pull them in, they are listed as generate
-            sub gena { sub { 'oops, should not see this' } }
-            sub genb { sub { 'oops, should not see this' } }
+            sub gena { die 'oops, should not see this' }
+            sub genb { die 'oops, should not see this' }
 
             # These are here to insure 'exports' does not pull them in, refs were provided by anon
-            sub x { sub { 'oops, should not see this' } }
-            sub y { sub { 'oops, should not see this' } }
+            sub x { die 'oops, should not see this' }
+            sub y { die 'oops, should not see this' }
 
             package Fake::ExporterI2;
 
@@ -405,12 +405,12 @@ subtest reload_menu => sub {
             sub __z { 'z' }
 
             # These are here to insure 'exports' does not pull them in, they are listed as generate
-            sub gena { sub { 'oops, should not see this' } }
-            sub genb { sub { 'oops, should not see this' } }
+            sub gena { die 'oops, should not see this' }
+            sub genb { die 'oops, should not see this' }
 
             # These are here to insure 'exports' does not pull them in, refs were provided by anon
-            sub x { sub { 'oops, should not see this' } }
-            sub y { sub { 'oops, should not see this' } }
+            sub x { die 'oops, should not see this' }
+            sub y { die 'oops, should not see this' }
         }
 
         my $one = $CLASS->new(from => 'Fake::ExporterE', caller => ['fake', 'fake.pl', 42]);
@@ -460,259 +460,488 @@ subtest reload_menu => sub {
         is($gen->('gena')->(), 'a', "generated a");
         is($gen->('genb')->(), 'b', "generated b");
     };
+};
 
+subtest parse_args => sub {
+    {
+        package Fake::Exporter::ForArgs;
+
+        sub IMPORTER_MENU {
+            return (
+                export      => [qw/foo &bar $ZAP %ZAP @ZAP/],
+                export_ok   => [qw/baz ick missing/],
+                export_tags => {b => [qw/bar baz/]},
+                export_fail => [qw/ick/],
+                export_anon => { x => \&__x, z => \&__z },
+                export_gen  => {
+                    'gena' => sub {
+                        sub { 'a' }
+                    },
+                    '&genb' => sub {
+                        sub { 'b' }
+                    },
+                },
+            );
+        }
+
+        sub foo { 'foo' }
+        sub bar { 'bar' }
+        sub baz { 'baz' }
+        sub ick { 'ick' }
+        sub __x { 'x' }
+        sub __z { 'z' }
+
+        # These are here to insure 'exports' does not pull them in, they are listed as generate
+        sub gena { die 'oops, should not see this' }
+        sub genb { die 'oops, should not see this' }
+
+        # These are here to insure 'exports' does not pull them in, refs were provided by anon
+        sub x { die 'oops, should not see this' }
+        sub y { die 'oops, should not see this' }
+    }
+
+    my $one = $CLASS->new(from => 'Fake::Exporter::ForArgs', caller => ['Foo', 'foo.pl', 42]);
+
+    is_deeply(
+        [$one->parse_args('Dest')],
+        [
+            'Dest',
+            [],
+            {},
+            [
+                ['&foo', {}],
+                ['&bar', {}],
+                ['$ZAP', {}],
+                ['%ZAP', {}],
+                ['@ZAP', {}],
+            ]
+        ],
+        "Got defaults with empty list"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', '!bar')],
+        [
+            'Dest',
+            [],
+            { '&bar' => 1 },
+            [
+                ['&foo', {}],
+                ['&bar', {}],
+                ['$ZAP', {}],
+                ['%ZAP', {}],
+                ['@ZAP', {}],
+            ]
+        ],
+        "Got defaults, exclude bar"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', '!' => 'bar')],
+        [
+            'Dest',
+            [],
+            { '&bar' => 1 },
+            [
+                ['&foo', {}],
+                ['&bar', {}],
+                ['$ZAP', {}],
+                ['%ZAP', {}],
+                ['@ZAP', {}],
+            ]
+        ],
+        "Got defaults, exclude bar"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', ':DEFAULT', '!:b')],
+        [
+            'Dest',
+            [],
+            { '&bar' => 1, '&baz' => 1 },
+            [
+                ['&foo', {}],
+                ['&bar', {}],
+                ['$ZAP', {}],
+                ['%ZAP', {}],
+                ['@ZAP', {}],
+            ]
+        ],
+        "Got defaults, exclude :b"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', ':b' => {-prefix => 'foo_'}, qw/x &y/)],
+        [
+            'Dest',
+            [],
+            {},
+            [
+                ['&bar', {-prefix => 'foo_'}],
+                ['&baz', {-prefix => 'foo_'}],
+                ['&x', {}],
+                ['&y', {}],
+            ]
+        ],
+        "Spec for tag"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', '/A/' => { -postfix => '_foo' }, '!$ZAP')],
+        [
+            'Dest',
+            [],
+            { '$ZAP' => 1 },
+            [
+                ['$ZAP', {-postfix => '_foo'}],
+                ['%ZAP', {-postfix => '_foo'}],
+                ['@ZAP', {-postfix => '_foo'}],
+            ]
+        ],
+        "Spec for pattern"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', 22, qr/A/, { -postfix => '_foo' }, '!$ZAP', 45)],
+        [
+            'Dest',
+            [ 22, 45 ],
+            { '$ZAP' => 1 },
+            [
+                ['$ZAP', {-postfix => '_foo'}],
+                ['%ZAP', {-postfix => '_foo'}],
+                ['@ZAP', {-postfix => '_foo'}],
+            ]
+        ],
+        "Spec for qr// (also test version)"
+    );
+
+    like(
+        dies { $one->parse_args('Dest', '/A/' => { -as => 'foo' }) },
+        qr{Cannot use '-as' to rename multiple symbols included by: /A/},
+        "-as does not work with multiple imports"
+    );
+
+    like(
+        dies { $one->parse_args('Dest', ':b' => { -as => 'foo' }) },
+        qr{Cannot use '-as' to rename multiple symbols included by: :b},
+        "-as does not work with multiple imports"
+    );
+
+    like(
+        dies { $one->parse_args('Dest', ':bad') },
+        qr{Fake::Exporter::ForArgs does not export the :bad tag},
+        "-as does not work with multiple imports"
+    );
+};
+
+subtest _handle_fail => sub {
+    {
+        package Fake::Exporter::ForFail;
+
+        sub IMPORTER_MENU {
+            return (
+                export      => [qw/foo &bar $ZAP %ZAP @ZAP/],
+                export_ok   => [qw/baz ick missing/],
+                export_tags => {b => [qw/bar baz/]},
+                export_fail => [qw/ick foo/],
+                export_anon => { x => \&__x, z => \&__z },
+                export_gen  => {
+                    'gena' => sub {
+                        sub { 'a' }
+                    },
+                    '&genb' => sub {
+                        sub { 'b' }
+                    },
+                },
+            );
+        }
+
+        sub foo { 'foo' }
+        sub bar { 'bar' }
+        sub baz { 'baz' }
+        sub ick { 'ick' }
+        sub __x { 'x' }
+        sub __z { 'z' }
+
+        # These are here to insure 'exports' does not pull them in, they are listed as generate
+        sub gena { die 'oops, should not see this' }
+        sub genb { die 'oops, should not see this' }
+
+        # These are here to insure 'exports' does not pull them in, refs were provided by anon
+        sub x { die 'oops, should not see this' }
+        sub y { die 'oops, should not see this' }
+
+        sub export_fail {
+            my $from = shift;
+            return grep !/foo/, @_;
+        }
+    }
+
+    my $one = $CLASS->new(from => 'Fake::Exporter::ForFail', caller => ['Foo', 'foo.pl', 42]);
+
+    ok(!dies { $one->_handle_fail('dest', [['bar'], ['baz']]) }, "no failures") || diag $@;
+    ok(!dies { $one->_handle_fail('dest', [['bar'], ['foo']]) }, "no failures, but 'foo' was on list") || diag $@;
+
+    like(
+        warns {
+            like(
+                dies { $one->_handle_fail('dest', [['bar'], ['ick']]) },
+                qr/Can't continue after import errors/,
+                "True failure"
+            )
+        },
+        qr/"ick" is not implemented by the Fake::Exporter::ForFail module on this architecture/,
+        "Got expected warning"
+    );
+};
+
+subtest _set_symbols => sub {
+    {
+        package Fake::ForSetSymbols;
+        our @EXPORT      = qw/foo &bar $ZAP %ZAP @ZAP/;
+        our @EXPORT_OK   = qw/baz ick missing/;
+        our %EXPORT_TAGS = (b => [qw/bar baz/]);
+        our @EXPORT_FAIL = qw/ick/;
+        our %EXPORT_ANON = (x => \&__x, z => \&__z);
+        our %EXPORT_GEN  = (
+            'gena' => sub {
+                sub { 'a' }
+            },
+            '&genb' => sub {
+                my $bad = 'bad';
+                return \$bad; # To test sigil mismatch
+            },
+        );
+
+        our @ZAP = (qw/Z A P/);
+        our $ZAP = 'ZAP';
+        our %ZAP = (ZAP => 1);
+
+        sub foo { 'foo' }
+        sub bar { 'bar' }
+        sub baz { 'baz' }
+        sub ick { 'ick' }
+        sub __x { 'x' }
+        sub __z { 'z' }
+
+        # These are here to insure 'exports' does not pull them in, they are listed as generate
+        sub gena { die 'oops, should not see this' }
+        sub genb { die 'oops, should not see this' }
+
+        # These are here to insure 'exports' does not pull them in, refs were provided by anon
+        sub x { die 'oops, should not see this' }
+        sub y { die 'oops, should not see this' }
+    }
+
+    my $one = $CLASS->new(from => 'Fake::ForSetSymbols', caller => ['Foo', 'foo.pl', 42]);
+
+    $one->_set_symbols(
+        'Fake::Dest::A',
+        {'&bar' => 1, '@ZAP' => 1},
+        [
+            # These first 2 should both be excluded
+            ['&bar' => {}],
+            ['&bar' => {-prefix => 'pre_', -postfix => '_post'}],
+
+            # Replicate use of ':b', this one is not excluded though
+            ['&baz' => {-prefix => 'pre_', -postfix => '_post'}],
+
+            # Exclude
+            ['@ZAP' => {}],
+
+            # Should import, specific name requested, ignore exclude
+            ['&bar' => {-as => 'boo'}],
+
+            # Should work fine
+            ['&foo'  => {}],
+            ['&gena' => {}],
+            ['&x'    => {}],
+            ['$ZAP'  => {-prefix => 'pre_', -postfix => '_post'}],
+        ],
+    );
+
+    is(\&Fake::Dest::A::pre_baz_post, \&Fake::ForSetSymbols::baz, 'Exported &baz as pre_baz_post');
+    is(\&Fake::Dest::A::boo,          \&Fake::ForSetSymbols::bar, 'Exported &bar as &boo');
+    is(\&Fake::Dest::A::foo,          \&Fake::ForSetSymbols::foo, 'Exported &foo');
+    is(\&Fake::Dest::A::x,            \&Fake::ForSetSymbols::__x, 'Exported anon &x');
+    is(\$Fake::Dest::A::pre_ZAP_post, \$Fake::ForSetSymbols::ZAP, 'Exported $ZAP as $pre_ZAP_post');
+    is(Fake::Dest::A::gena(),         'a',                        'Generated &gena');
+
+    {
+        no warnings 'once';
+        ok(\@Fake::Dest::A::ZAP != \@Fake::ForSetSymbols::ZAP,          'Excluded @ZAP');
+        ok(\&Fake::Dest::A::bar != \&Fake::ForSetSymbols::bar,          'Excluded &bar');
+        ok(\&Fake::Dest::A::pre_bar_post != \&Fake::ForSetSymbols::bar, 'Excluded &bar with prefix/postfix');
+    }
+
+    ok(!dies { $one->_set_symbols('Fake::Dest::A', {}, [['&missing' => {}]]) }, "Can fake-import missing symbol if it is listed");
+
+    like(
+        dies { $one->_set_symbols('Fake::Dest::A', {}, [['&nope' => {}]]) },
+        qr/Fake::ForSetSymbols does not export \&nope/,
+        "unlisted symbol cannot be imported"
+    );
+
+    like(
+        dies { $one->_set_symbols('Fake::Dest::A', {}, [['&genb' => {}]]) },
+        qr/Symbol '\&genb' requested, but reference \(SCALAR\) does not match sigil \(\&\)/,
+        "sigil mismatch"
+    );
+
+    # Make sure it finds the correct caller, not our fake one
+    delete $one->{caller};
+
+    {
+        no warnings 'redefine';
+        *Fake::Dest::A::foo = sub { 1 };
+    }
+
+    ok(
+        !warns {
+            no warnings 'redefine';
+            $one->_set_symbols('Fake::Dest::A', {}, [['&foo' => {}]])
+        },
+        "no redefine warnings"
+    );
+
+    {
+        no warnings 'redefine';
+        *Fake::Dest::A::foo = sub { 1 };
+    }
+
+    like(
+        warns {
+            use warnings 'redefine';
+            $one->_set_symbols('Fake::Dest::A', {}, [['&foo' => {}]])
+        },
+        qr/Subroutine Fake::Dest::A::foo redefined/,
+        "redefine warnings"
+    );
+
+    $one = $CLASS->new(from => 'Fake::Dest::A');
+
+    can_ok('Fake::Dest::A', 'foo');
+    $one->do_unimport(qw/foo/);
+    ok(!'Fake::Dest::A'->can('foo'), "removed &foo");
+
+    is(\&Fake::Dest::A::pre_baz_post, \&Fake::ForSetSymbols::baz, 'Kept &baz as pre_baz_post');
+    is(\&Fake::Dest::A::boo,          \&Fake::ForSetSymbols::bar, 'Kept &bar as &boo');
+    is(\&Fake::Dest::A::x,            \&Fake::ForSetSymbols::__x, 'Kept anon &x');
+    is(\$Fake::Dest::A::pre_ZAP_post, \$Fake::ForSetSymbols::ZAP, 'Kept $ZAP as $pre_ZAP_post');
+    is(Fake::Dest::A::gena(),         'a',                        'Kept &gena');
+
+    $one->do_unimport();
+    is(\$Fake::Dest::A::pre_ZAP_post, \$Fake::ForSetSymbols::ZAP, 'Kept $ZAP as $pre_ZAP_post');
+    ok(!'Fake::Dest::A'->can($_), "removed \&$_") for qw/pre_baz_post boo x gena/;
+};
+
+subtest version_check => sub {
+    local *version_check = $CLASS->can('_version_check') or die "where did _version_check go?";
+    ok(version_check($CLASS, ['foo', 'foo.pl', 42], '0.001'), "version check pass");
+    like(
+        dies { version_check($CLASS, ['foo', 'foo.pl', 42], '9999') },
+        qr/version 9999 required.*foo\.pl line 42/,
+        "Version Check fails"
+    );
+};
+
+subtest mod_to_file => sub {
+    local *mod_to_file = $CLASS->can('_mod_to_file') or die "where did _mod_to_file go?";
+    is(mod_to_file('Foo::Bar::Baz'), 'Foo/Bar/Baz.pm', "Converted module to filename");
+};
+
+subtest load_file => sub {
+    local *load_file = $CLASS->can('_load_file') or die "where did _load_file go?";
+    ok(load_file(['foo', 'foo.pl', 42], 'Data/Dumper.pm'), "Load file pass");
+    eval <<"    EOT" && die "Ooops, wtf?";
+#line 42 "foo.pl"
+require Fake::File::That::Better::Not::Exist::SAGSDGDS;
+1;
+    EOT
+    my $error = $@;
+    like($error, qr/locate.*\@INC/ms, "predicted error message is somewhat sane");
+    is(
+        dies { load_file(['foo', 'foo.pl', 42], 'Fake/File/That/Better/Not/Exist/SAGSDGDS.pm') },
+        $error,
+        "Load file fails"
+    );
+};
+
+subtest _optimal_import => sub {
+    {
+        package Fake::ForOptimal::A;
+        our @EXPORT = qw/foo &bar $ZAP %ZAP @ZAP/;
+        sub foo { 'foo' }
+        sub bar { 'bar' }
+    }
+    my $optimal = $CLASS->can('_optimal_import');
+
+    ok($optimal->('Fake::ForOptimal::A', 'FDestA', ['F', 'F.pm', 4], qw/foo/), "Success");
+    can_ok('FDestA', 'foo');
+
+    ok(!$optimal->('Fake::ForOptimal::A', 'FDestA', ['F', 'F.pm', 4], qw/bar @ZAP/), "Failure");
+    ok(!'FDestA'->can('bar'), 'Did not export anything');
+
+    ok(!$optimal->('Fake::ForOptimal::A', 'FDestA', ['F', 'F.pm', 4], qw/bloop/), "Failure, not a valid export");
+
+    {
+        package Fake::ForOptimal::B;
+        our @EXPORT = qw/foo &bar/;
+        sub foo { 'foo' }
+        sub bar { 'bar' }
+    }
+    ok($optimal->('Fake::ForOptimal::B', 'FDestB', ['F', 'F.pm', 4]), "Success with defaults");
+    can_ok('FDestB', 'foo', 'bar');
+
+    {
+        package Fake::ForOptimal::C;
+        our @EXPORT = qw/foo &bar/;
+        our @EXPORT_FAIL = qw/bar/;
+        sub foo { 'foo' }
+        sub bar { 'bar' }
+    }
+    ok(!$optimal->('Fake::ForOptimal::C', 'FDestC', ['F', 'F.pm', 4], 'foo'), "Failure die to EXPORT_FAIL");
+    ok(!'FDestC'->can('foo'), 'Did not export anything');
+
+
+
+    no warnings 'once';
+    *FDestD::foo = sub { 'xyz' };
+    like(
+        warns { $optimal->('Fake::ForOptimal::A', 'FDestD', ['F', 'F.pm', 4], 'foo') },
+        qr/Subroutine FDestD::foo redefined at F\.pm line 4/,
+        "Got redefine warning"
+    );
+
+    {
+        package FDestD;
+        Importer->unimport;
+    }
+
+    ok(!FDestD->can('foo'), "Removed 'foo'");
+};
+
+subtest exporter_import => sub {
+    BEGIN {
+        $INC{'Fake/Exporter.pm'} = 1;
+        package Fake::Exporter;
+        use Importer Importer => 'exporter_import' => { -as => 'import' };
+        our @EXPORT = qw/foo $ZAP/;
+        sub foo { 'foo' }
+        our $ZAP = 1;
+    }
+
+    {
+        package Fake::XXX::A;
+        use Fake::Exporter qw/foo/;
+
+        package Fake::XXX::B;
+        use Fake::Exporter qw/foo $ZAP/;
+    }
+
+    can_ok('Fake::XXX::A', 'foo'); # Optimal case
+    can_ok('Fake::XXX::B', 'foo'); # Non-optimal
 };
 
 done_testing;
-
-__END__
-
-
-sub parse_args {
-    my $self = shift;
-    my ($into, @args) = @_;
-
-    @args = (':DEFAULT') unless @args;
-
-    my $from = $self->from;
-    my $menu = $self->menu($into);
-
-    my %exclude;
-    my @import;
-    my @versions;
-
-    while(my $full_arg = shift @args) {
-        my $arg = $full_arg;
-        my $lead = substr($arg, 0, 1);
-        my ($spec, $exc);
-
-        # If the first character is an ASCII numeric then it is a version number
-        if ($NUMERIC{$lead}) {
-            push @versions => $arg;
-            next;
-        }
-
-        if ($lead eq '!') {
-            my $exc = $lead;
-
-            if ($arg eq '!') {
-                # If the current arg is just '!' then we are negating the next item.
-                $arg = shift;
-            }
-            else {
-                # Strip off the '!'
-                substr($arg, 0, 1, '');
-
-                # Exporter.pm legacy behavior
-                # negated first item implies starting with default set:
-                unshift @args => ':DEFAULT' unless @import || keys %exclude || @versions;
-            }
-
-            # Now we have a new lead character
-            $lead = substr($arg, 0, 1);
-        }
-        else {
-            # If the item is followed by a reference then they are asking us to
-            # do something special...
-            $spec = ref($args[0]) ? shift @args : {};
-        }
-
-        # Process the item to figure out what symbols are being touched, if it
-        # is a tag or regex than it can be multiple.
-        my @list;
-        if(ref($arg) eq 'Regexp') {
-            @list = grep /$arg/, keys %{$menu->{lookup}};
-        }
-        if($lead eq ':') {
-            substr($arg, 0, 1, '');
-            my $tag = $menu->{tags}->{$arg} or croak "$from does not export the :$arg tag";
-            @list = @$tag;
-        }
-        elsif($lead eq '/' && $arg =~ m{^/(.*)/$}) {
-            my $pattern = $1;
-            @list = grep /$1/, keys %{$menu->{lookup}};
-        }
-        else {
-            @list = ($arg);
-        }
-
-        # Normalize list, always have a sigil
-        @list = map {m/^\W/ ? $_ : "\&$_" } @list;
-
-        if ($exc) {
-            $exclude{$_} = 1 for @list;
-        }
-        else {
-            $self->croak("Cannot use '-as' to rename multiple symbols included by: $full_arg")
-                if $spec->{'-as'} && @list > 1;
-
-            push @import => [$_, $spec] for @list;
-        }
-    }
-
-    return ($into, \@versions, \%exclude, \@import);
-}
-
-sub _handle_fail {
-    my $self = shift;
-    my ($into, $import) = @_;
-
-    my $from = $self->from;
-    my $menu = $self->menu($into);
-
-    my @fail = grep { $menu->{fail}->{$_->[0]} } @$import or return;
-
-    my @real_fail = $from->export_fail(map {$_->[0]} @fail) if $from->can('export_fail');
-
-    if (@real_fail) {
-        $self->carp(qq["$_" is not implemented by the $from module on this architecture])
-            for @real_fail;
-
-        $self->croak("Can't continue after import errors");
-    }
-
-    $self->reload_menu($menu);
-    return;
-}
-
-sub _set_symbols {
-    my $self = shift;
-    my ($into, $exclude, $import) = @_;
-
-    my $from   = $self->from;
-    my $menu   = $self->menu($into);
-    my $caller = $self->get_caller();
-
-    my $set_symbol = eval <<"    EOT" || die $@;
-#line ${ \__LINE__ } "${ \__FILE__ }"
-        sub {
-            my (\$name, \$ref) = \@_;
-
-            # Inherit the callers warning settings. If they have warnings and we
-            # redefine their subs they will hear about it. If they do not have warnings
-            # on they will not.
-            BEGIN { \${^WARNING_BITS} = \$caller->[9] if \$caller->[9] };
-
-            # For our sub here we want to keep most strictures on, but we need to turn
-            # off strict ref checking.
-            no strict 'refs';
-
-#line $caller->[2] "$caller->[1]"
-            *{"$into\::\$name"} = \$ref;
-        }
-    EOT
-
-    for my $set (@$import) {
-        my ($symbol, $spec) = @$set;
-
-        my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/);
-
-        # Find the thing we are actually shoving in a new namespace
-        my $ref = $menu->{exports}->{$symbol};
-        $ref ||= $menu->{generate}->($symbol) if $menu->{generate};
-
-        # Exporter.pm supported listing items in @EXPORT that are not actually
-        # available for export. So if it is listed (lookup) but nothing is
-        # there (!$ref) we simply skip it.
-        croak "$from does not export $symbol" unless $ref || $menu->{lookup}->{$name} || $menu->{lookup}->{$symbol};
-        next unless $ref;
-
-        # Figure out the name they actually want it under
-        $name = $spec->{'-as'} || join '' => ($spec->{'-prefix'} || '', $name, $spec->{'-postfix'} || '');
-
-        # Skip it if it has been excluded. We check only the new name, if they
-        # exclude an old name, and then ask for it with a new name we assume it
-        # is just a rename with precautions.
-        next if $exclude->{"${sig}${name}"};
-
-        push @{$IMPORTED{$into}} => $name if $sig eq '&';
-
-        # Set the symbol (finally!)
-        $set_symbol->($name, $ref);
-    }
-}
-
-#########################################################
-## The rest of these are utility functions, not methods!
-
-sub _version_check {
-    my ($mod, $caller, @versions) = @_;
-
-    eval <<"    EOT" or die $@;
-#line $caller->[2] "$caller->[1]"
-\$mod->VERSION(\$_) for \@versions;
-1;
-    EOT
-}
-
-sub _mod_to_file {
-    my $file = shift;
-    $file =~ s{::}{/}g;
-    $file .= '.pm';
-    return $file;
-}
-
-sub _load_file {
-    my ($caller, $file) = @_;
-
-    eval <<"    EOT" || die $@;
-#line $caller->[2] "$caller->[1]"
-require \$file;
-    EOT
-}
-
-sub _optimal_import {
-    my ($from, $into, @args) = @_;
-
-    my %final;
-    no strict 'refs';
-    return 0 if @{"$from\::EXPORT_FAIL"};
-    @args = @{"$from\::EXPORT"} unless @args;
-    my %allowed = map +($_ => 1), @{"$from\::EXPORT"}, @{"$from\::EXPORT_OK"};
-    use strict 'refs';
-
-    for my $arg (@args) {
-        # Get sigil, or first letter of name
-        my $sig = substr($arg, 0, 1);
-
-        # Return if non-sub sigil
-        return 0 if $NON_OPTIMAL{$sig};
-
-        # Strip sigil (if sub)
-        my $name = $arg;
-        substr($name, 0, 1, '') if $sig eq '&';
-
-        # Check if the name is allowed (with or without sigil)
-        return 0 unless $allowed{$name} || $allowed{$arg};
-
-        no strict 'refs';
-        $final{$name} = \&{"$from\::$name"};
-    }
-
-    no strict 'refs';
-    (*{"$into\::$_"} = $final{$_}, push @{$IMPORTED{$into}} => $_) for keys %final;
-
-    return 1;
-}
-
-sub exporter_import {
-    my $from = shift;
-
-    my @caller = caller(0);
-
-    return unless @_;
-
-    my $file = _mod_to_file($from);
-    _load_file(\@caller, $file) unless $INC{$file};
-
-    return if _optimal_import($from, $caller[0], @_);
-
-    my $self = __PACKAGE__->new(
-        from   => $from,
-        caller => \@caller,
-    );
-
-    $self->do_import($caller[0], @_);
-}
-
-

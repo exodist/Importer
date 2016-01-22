@@ -13,8 +13,8 @@ sub export_fail { shift; @_ }
 
 sub export_to_level {
     my $from = shift;
-    my ($level) = @_;
-    Importer->import_into($from, $level + 1, @_);
+    my ($level, $ignore, @args) = @_;
+    Importer->import_into($from, $level + 1, @args);
 }
 
 sub require_version {

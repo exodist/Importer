@@ -2,9 +2,7 @@ package Importer;
 use strict;
 use warnings;
 
-our $VERSION = 0.003;
-
-our @EXPORT_OK = qw/exporter_import/;
+our $VERSION = 0.004;
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -20,11 +18,18 @@ my %IMPORTED;
 my %NUMERIC = map { $_ => 1 } 0 .. 9;
 
 # If a consumer just wants subs then we can optimize the import. This is used
-# as a lookup table to find non-optimal sigils. Can;t just look for '&' since a
+# as a lookup table to find non-optimal sigils. Can't just look for '&' since a
 # sub can be listed without a sigil, so alpha-numerics may also be checked
 # against thi stable, and we want those to be considered optimal.
 my %NON_OPTIMAL = ( '$' => 1, '@' => 1, '%' => 1, '*' => 1 );
 
+###########################################################################
+#
+# This is a method intended to be used as 'import' by packages that want to
+# export on use.
+#
+
+our @EXPORT_OK = qw/exporter_import/;
 sub exporter_import {
     my $from = shift;
 
@@ -35,7 +40,7 @@ sub exporter_import {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $caller[0], @_);
+    return if _optimal_import($from, $caller[0], \@caller, @_);
 
     my $self = __PACKAGE__->new(
         from   => $from,
@@ -44,6 +49,17 @@ sub exporter_import {
 
     $self->do_import($caller[0], @_);
 }
+
+###########################################################################
+#
+# These are class methods
+# import and unimport are what you would expect.
+# import_into and unimport_from are the indirect forms you can use in other
+# package import() methods.
+#
+# These all attempt to do a fast optimal-import if possible, then fallback to
+# the full-featured import that constructs an object when needed.
+#
 
 sub import {
     my $class = shift;
@@ -59,7 +75,7 @@ sub import {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $caller[0], @args);
+    return if _optimal_import($from, $caller[0], \@caller, @args);
 
     my $self = $class->new(
         from   => $from,
@@ -68,6 +84,19 @@ sub import {
 
     $self->do_import($caller[0], @args);
 }
+
+sub unimport {
+    my $class = shift;
+    my @caller = caller(0);
+
+    my $self = $class->new(
+        from   => $caller[0],
+        caller => \@caller,
+    );
+
+    $self->do_unimport(@_);
+}
+
 
 sub import_into {
     my $class = shift;
@@ -86,7 +115,7 @@ sub import_into {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $into, @args);
+    return if _optimal_import($from, $into, \@caller, @args);
 
     my $self = $class->new(
         from   => $from,
@@ -94,32 +123,6 @@ sub import_into {
     );
 
     $self->do_import($into, @args);
-}
-
-sub do_import {
-    my $self = shift;
-
-    my ($into, $versions, $exclude, $import) = $self->parse_args(@_);
-
-    # Exporter supported multiple version numbers being listed...
-    _version_check($self->from, $self->get_caller, @$versions) if @$versions;
-
-    return unless @$import;
-
-    $self->_handle_fail($into, $import) if $self->menu($into)->{fail};
-    $self->_set_symbols($into, $exclude, $import);
-}
-
-sub unimport {
-    my $class = shift;
-    my @caller = caller(0);
-
-    my $self = $class->new(
-        from   => $caller[0],
-        caller => \@caller,
-    );
-
-    $self->do_unimport(@_);
 }
 
 sub unimport_from {
@@ -143,11 +146,50 @@ sub unimport_from {
     $self->do_unimport(@args);
 }
 
+###########################################################################
+#
+# Constructors
+#
+
+sub new {
+    my $class = shift;
+    my %params = @_;
+
+    my $caller = $params{caller} || [caller()];
+
+    die "You must specify a package to import from at $caller->[1] line $caller->[2].\n"
+        unless $params{from};
+
+    return bless {
+        from   => $params{from},
+        caller => $params{caller},    # Do not use our caller.
+    }, $class;
+}
+
+###########################################################################
+#
+# Object methods
+#
+
+sub do_import {
+    my $self = shift;
+
+    my ($into, $versions, $exclude, $import) = $self->parse_args(@_);
+
+    # Exporter supported multiple version numbers being listed...
+    _version_check($self->from, $self->get_caller, @$versions) if @$versions;
+
+    return unless @$import;
+
+    $self->_handle_fail($into, $import) if $self->menu($into)->{fail};
+    $self->_set_symbols($into, $exclude, $import);
+}
+
 sub do_unimport {
     my $self = shift;
 
     my $from = $self->from;
-    my $imported = $IMPORTED{$from} || $self->croak("'$from' does not have any imports to remove");
+    my $imported = $IMPORTED{$from} or $self->croak("'$from' does not have any imports to remove");
 
     my %allowed = map { $_ => 1 } @$imported;
 
@@ -172,21 +214,6 @@ sub do_unimport {
             *{"$from\::$name"} = *{$glob}{$type}
         }
     }
-}
-
-sub new {
-    my $class = shift;
-    my %params = @_;
-
-    my $caller = $params{caller} || [caller()];
-
-    die "You must specify a package to import from at $caller->[1] line $caller->[2].\n"
-        unless $params{from};
-
-    return bless {
-        from   => $params{from},
-        caller => $params{caller},    # Do not use our caller.
-    }, $class;
 }
 
 sub from { $_[0]->{from} }
@@ -380,20 +407,20 @@ sub parse_args {
         }
 
         if ($lead eq '!') {
-            my $exc = $lead;
+            $exc = $lead;
 
             if ($arg eq '!') {
                 # If the current arg is just '!' then we are negating the next item.
-                $arg = shift;
+                $arg = shift @args;
             }
             else {
                 # Strip off the '!'
                 substr($arg, 0, 1, '');
-
-                # Exporter.pm legacy behavior
-                # negated first item implies starting with default set:
-                unshift @args => ':DEFAULT' unless @import || keys %exclude || @versions;
             }
+
+            # Exporter.pm legacy behavior
+            # negated first item implies starting with default set:
+            unshift @args => ':DEFAULT' unless @import || keys %exclude || @versions;
 
             # Now we have a new lead character
             $lead = substr($arg, 0, 1);
@@ -408,16 +435,16 @@ sub parse_args {
         # is a tag or regex than it can be multiple.
         my @list;
         if(ref($arg) eq 'Regexp') {
-            @list = grep /$arg/, keys %{$menu->{lookup}};
+            @list = sort grep /$arg/, keys %{$menu->{lookup}};
         }
-        if($lead eq ':') {
+        elsif($lead eq ':') {
             substr($arg, 0, 1, '');
-            my $tag = $menu->{tags}->{$arg} or croak "$from does not export the :$arg tag";
+            my $tag = $menu->{tags}->{$arg} or $self->croak("$from does not export the :$arg tag");
             @list = @$tag;
         }
         elsif($lead eq '/' && $arg =~ m{^/(.*)/$}) {
             my $pattern = $1;
-            @list = grep /$1/, keys %{$menu->{lookup}};
+            @list = sort grep /$1/, keys %{$menu->{lookup}};
         }
         else {
             @list = ($arg);
@@ -426,6 +453,7 @@ sub parse_args {
         # Normalize list, always have a sigil
         my %seen;
         @list = grep !$seen{$_}++, map {m/^\W/ ? $_ : "\&$_" } @list;
+
 
         if ($exc) {
             $exclude{$_} = 1 for @list;
@@ -448,9 +476,9 @@ sub _handle_fail {
     my $from = $self->from;
     my $menu = $self->menu($into);
 
-    my @fail = grep { $menu->{fail}->{$_->[0]} } @$import or return;
+    my @fail = grep $menu->{fail}->{$_->[0]}, @$import or return;
 
-    my @real_fail = $from->export_fail(map {$_->[0]} @fail) if $from->can('export_fail');
+    my @real_fail = $from->can('export_fail') ? $from->export_fail(map $_->[0], @fail) : map $_->[0], @fail;
 
     if (@real_fail) {
         $self->carp(qq["$_" is not implemented by the $from module on this architecture])
@@ -471,29 +499,23 @@ sub _set_symbols {
     my $menu   = $self->menu($into);
     my $caller = $self->get_caller();
 
+    # Turn of strict 'refs' for the sub we generate. Doing this here instead of
+    # in the eval is faster since it only runs once.
+    no strict 'refs';
     my $set_symbol = eval <<"    EOT" || die $@;
-#line ${ \__LINE__ } "${ \__FILE__ }"
-        sub {
-            my (\$name, \$ref) = \@_;
-
-            # Inherit the callers warning settings. If they have warnings and we
-            # redefine their subs they will hear about it. If they do not have warnings
-            # on they will not.
-            BEGIN { \${^WARNING_BITS} = \$caller->[9] if \$caller->[9] };
-
-            # For our sub here we want to keep most strictures on, but we need to turn
-            # off strict ref checking.
-            no strict 'refs';
-
+# Inherit the callers warning settings. If they have warnings and we
+# redefine their subs they will hear about it. If they do not have warnings
+# on they will not.
+BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] }
 #line $caller->[2] "$caller->[1]"
-            *{"$into\::\$name"} = \$ref;
-        }
+sub { *{"$into\::\$_[0]"} = \$_[1] }
     EOT
+    use strict 'refs';
 
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
-        my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/);
+        my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/) or die "Invalid symbol: $symbol";
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -502,26 +524,30 @@ sub _set_symbols {
         # Exporter.pm supported listing items in @EXPORT that are not actually
         # available for export. So if it is listed (lookup) but nothing is
         # there (!$ref) we simply skip it.
-        croak "$from does not export $symbol" unless $ref || $menu->{lookup}->{"${sig}${name}"};
+        $self->croak("$from does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
-        # Figure out the name they actually want it under
-        $name = $spec->{'-as'} || join '' => ($spec->{'-prefix'} || '', $name, $spec->{'-postfix'} || '');
+        $self->croak("Symbol '$sig$name' requested, but reference (" . ref($ref) . ") does not match sigil ($sig)")
+            if $ref && ref($ref) ne $SIG_TO_SLOT{$sig};
 
-        # Skip it if it has been excluded. We check only the new name, if they
-        # exclude an old name, and then ask for it with a new name we assume it
-        # is just a rename with precautions.
-        next if $exclude->{"${sig}${name}"};
+        # If they directly renamed it then we assume they want it under the new
+        # name, otherwise excludes get kicked. It is useful to be able to
+        # exclude an item in a tag/match where the group has a prefix/postfix.
+        next if $exclude->{"${sig}${name}"} && !$spec->{'-as'};
 
-        push @{$IMPORTED{$into}} => $name if $sig eq '&';
+        my $new_name = join '' => ($spec->{'-prefix'} || '', $spec->{'-as'} || $name, $spec->{'-postfix'} || '');
+
+        push @{$IMPORTED{$into}} => $new_name if $sig eq '&';
 
         # Set the symbol (finally!)
-        $set_symbol->($name, $ref);
+        $set_symbol->($new_name, $ref);
     }
 }
 
-#########################################################
-## The rest of these are utility functions, not methods!
+###########################################################################
+#
+# The rest of these are utility functions, not methods!
+#
 
 sub _version_check {
     my ($mod, $caller, @versions) = @_;
@@ -550,13 +576,15 @@ require \$file;
 }
 
 sub _optimal_import {
-    my ($from, $into, @args) = @_;
+    my ($from, $into, $caller, @args) = @_;
+
+    my %new_style = $from->can('IMPORTER_MENU') ? $from->IMPORTER_MENU : ();
 
     my %final;
     no strict 'refs';
-    return 0 if @{"$from\::EXPORT_FAIL"};
-    @args = @{"$from\::EXPORT"} unless @args;
-    my %allowed = map +($_ => 1), @{"$from\::EXPORT"}, @{"$from\::EXPORT_OK"};
+    return 0 if $new_style{export_fail} || @{"$from\::EXPORT_FAIL"};
+    @args = @{$new_style{export} || "$from\::EXPORT"} unless @args;
+    my %allowed = map +($_ => 1), @{$new_style{export} || "$from\::EXPORT"}, @{$new_style{export_ok} || "$from\::EXPORT_OK"};
     use strict 'refs';
 
     for my $arg (@args) {
@@ -577,10 +605,21 @@ sub _optimal_import {
         $final{$name} = \&{"$from\::$name"};
     }
 
-    no strict 'refs';
-    (*{"$into\::$_"} = $final{$_}, push @{$IMPORTED{$into}} => $_) for keys %final;
+    # This is necessary for the eval.
+    my $IMPORTED = \%IMPORTED;
 
-    return 1;
+    # This effects the eval, which is what we want. Putting this here means it
+    # runs once, at build time. Putting it inside the eval means it runs each
+    # time _optimal_import is called, which is costly.
+    no strict 'refs';
+    eval <<"    EOT" || die $@;
+# If the caller has redefine warnings enabled then we want to warn them if
+# their import redefines things.
+BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] };
+#line $caller->[2] "$caller->[1]"
+(*{"\$into\::\$_"} = \$final{\$_}, push \@{\$IMPORTED->{\$into}} => \$_) for keys %final;
+1;
+    EOT
 }
 
 1;
@@ -711,6 +750,31 @@ be used.
 
 =head1 SUPPORTED FEATURES
 
+=head2 TAGS
+
+You can define/import subsets of symbols using predefined tags.
+
+    use Importer 'Some::Thing' => ':tag';
+
+=head2 /PATTERN/ or qr/PATTERN/
+
+You can import all symbols that match a pattern. The pattern can be supplied a
+string starting and ending with '/', or you can provide a C<qr/../> reference.
+
+    use Importer 'Some::Thing' => '/oo/';
+
+    use Importer 'Some::Thing' => qr/oo/;
+
+=head2 EXLUDING SYMBOLS
+
+You can exclude symbols by prefixing them with '!'.
+
+    use Importer 'Some::Thing'
+        '!foo',         # Exclude one specific symbol
+        '!/pattern/',   # Exclude all matching symbols
+        '!' => qr/oo/,  # Exclude all that match the following arg
+        '!:tag';        # Exclude all in tag
+
 =head2 RENAMING SYMBOLS AT IMPORT
 
 I<This is a new feature,> L<Exporter> I<does not support this on its own.>
@@ -732,39 +796,17 @@ Using this syntax to set prefix and/or postfix also works on tags and patterns
 that are specified for import, in which case the prefix/postfix is applied to
 all symbols from the tag/patterm.
 
-=head2 @EXPORT_FAIL
+=head2 UNIMPORTING
 
-Use this to list subs that are not available on all platforms. If someone tries
-to import one of these, Importer will hit your C<< $from->export_fail(@items) >>
-callback to try to resolve the issue. See L<Exporter.pm> for documentation of
-this feature.
+See L</UNIMPORT PARAMETERS>.
 
-=head2 %EXPORT_TAGS
+=head2 ANONYMOUS EXPORTS
 
-This module supports tags exactly the way L<Exporter> does.
+See L</%EXPORT_ANON>.
 
-    use Importer 'Some::Thing'  => ':DEFAULT';
+=head2 GENERATED EXPORTS
 
-    use Importer 'Other::Thing' => ':some_tag';
-
-=head2 /PATTERN/ or qr/PATTERN/
-
-You can import all symbols that match a pattern. The pattern can be supplied a
-string starting and ending with '/', or you can provide a C<qr/../> reference.
-
-    use Importer 'Some::Thing' => '/oo/';
-
-    use Importer 'Some::Thing' => qr/oo/;
-
-=head2 EXLUDING SYMBOLS
-
-You can exclude symbols by prefixing them with '!'.
-
-    use Importer 'Some::Thing'
-        '!foo',         # Exclude one specific symbol
-        '!/pattern/',   # Exclude all matching symbols
-        '!' => qr/oo/,  # Exclude all that match the following arg
-        '!:tag';        # Exclude all in tag
+See L</%EXPORT_GEN>.
 
 =head1 UNIMPORT PARAMETERS
 
@@ -775,6 +817,75 @@ You can exclude symbols by prefixing them with '!'.
 B<Only subs can be unimported>.
 
 B<You can only unimport subs imported using Importer>.
+
+=head1 SUPPORTED VARIABLES
+
+=head2 @EXPORT
+
+This is used exactly the way L<Exporter> uses it.
+
+List of symbols to export. Sigil is optional for subs. Symbols listed here are
+exported by default. If possible you should put symbols in C<@EXPORT_OK>
+instead.
+
+=head2 @EXPORT_OK
+
+This is used exactly the way L<Exporter> uses it.
+
+List of symbols that can be imported. Sigil is optional for subs. Symbols
+listed here are not exported by default. This is preferred over C<@EXPORT>.
+
+=head2 %EXPORT_TAGS
+
+This module supports tags exactly the way L<Exporter> does.
+
+    use Importer 'Some::Thing'  => ':DEFAULT';
+
+    use Importer 'Other::Thing' => ':some_tag';
+
+=head2 @EXPORT_FAIL
+
+This is used exactly the way L<Exporter> uses it.
+
+Use this to list subs that are not available on all platforms. If someone tries
+to import one of these, Importer will hit your C<< $from->export_fail(@items) >>
+callback to try to resolve the issue. See L<Exporter.pm> for documentation of
+this feature.
+
+=head2 %EXPORT_ANON
+
+This is new to this module, L<Exporter> does not support it.
+
+This allows you to export symbols that are not actually in your package symbol
+table. The keys should be the symbol names, the values are the references for
+the symbols.
+
+    our %EXPORT_ANON = (
+        '&foo' => sub { 'foo' }
+        '$foo' => \$foo,
+        ...
+    );
+
+=head2 %EXPORT_GEN
+
+This is new to this module, L<Exporter> does not support it.
+
+This allows you to export symbols that are generated on export. The key should
+be the name of a symbol. The value should be a coderef that produces a
+reference that will be exported.
+
+When the generators are called they will recieve 2 arguments, the package the
+symbol is being exported into, and the symbol being imported (name may or may
+not include sigil for subs).
+
+    our %EXPORT_GEN = (
+        '&foo' => sub {
+            my ($into_package, $symbol_name) = @_;
+            ...
+            return sub { ... };
+        },
+        ...
+    );
 
 =head1 CLASS METHODS
 
@@ -814,6 +925,13 @@ name, or a caller level.
 
 =back
 
+=head1 GIVING YOUR PACKAGE AN OLD-SCHOOL IMPORT METHOD
+
+    package My::Exporter;
+    use Importer Importer => ('exporter_import' => {-as => 'import'});
+
+    ...
+
 =head1 USING WITH OTHER EXPORTER IMPLEMENTATIONS
 
 If you want your module to work with Importer, but you use something other than
@@ -830,7 +948,13 @@ to support Importer by putting this sub in your package:
             export_ok   => \@EXPORT_OK,   # Other allowed exports
             export_tags => \%EXPORT_TAGS, # Define tags
             export_fail => \@EXPORT_FAIL, # For subs that may not always be available
+            export_anon => \%EXPORT_ANON, # Anonymous symbols to export
+
             generate    => \&GENERATE,    # Sub to generate dynamic exports
+            # OR
+            export_gen  => \%EXPORT_GEN,  # Hash of builders, key is symbol
+                                          # name, value is sub that generates
+                                          # the symbol ref.
         );
     }
 

@@ -1,5 +1,9 @@
 {{$NEXT}}
 
+    - Finish testing
+    - Bug fixes
+    - documentation
+
 0.003     2016-01-17 23:19:45-08:00 America/Los_Angeles
 
     - Optimized path for most-common import condition
