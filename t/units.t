@@ -922,26 +922,4 @@ subtest _optimal_import => sub {
     ok(!FDestD->can('foo'), "Removed 'foo'");
 };
 
-subtest exporter_import => sub {
-    BEGIN {
-        $INC{'Fake/Exporter.pm'} = 1;
-        package Fake::Exporter;
-        use Importer Importer => 'exporter_import' => { -as => 'import' };
-        our @EXPORT = qw/foo $ZAP/;
-        sub foo { 'foo' }
-        our $ZAP = 1;
-    }
-
-    {
-        package Fake::XXX::A;
-        use Fake::Exporter qw/foo/;
-
-        package Fake::XXX::B;
-        use Fake::Exporter qw/foo $ZAP/;
-    }
-
-    can_ok('Fake::XXX::A', 'foo'); # Optimal case
-    can_ok('Fake::XXX::B', 'foo'); # Non-optimal
-};
-
 done_testing;

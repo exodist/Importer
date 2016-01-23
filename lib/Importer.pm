@@ -2,7 +2,7 @@ package Importer;
 use strict;
 use warnings;
 
-our $VERSION = 0.005;
+our $VERSION = 0.006;
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -12,7 +12,7 @@ my %SIG_TO_SLOT = (
     '*' => 'GLOB',
 );
 
-my %IMPORTED;
+our %IMPORTED;
 
 # This will be used to check if an import arg is a version number
 my %NUMERIC = map { $_ => 1 } 0 .. 9;
@@ -22,33 +22,6 @@ my %NUMERIC = map { $_ => 1 } 0 .. 9;
 # sub can be listed without a sigil, so alpha-numerics may also be checked
 # against thi stable, and we want those to be considered optimal.
 my %NON_OPTIMAL = ( '$' => 1, '@' => 1, '%' => 1, '*' => 1 );
-
-###########################################################################
-#
-# This is a method intended to be used as 'import' by packages that want to
-# export on use.
-#
-
-our @EXPORT_OK = qw/exporter_import/;
-sub exporter_import {
-    my $from = shift;
-
-    my @caller = caller(0);
-
-    return unless @_;
-
-    my $file = _mod_to_file($from);
-    _load_file(\@caller, $file) unless $INC{$file};
-
-    return if _optimal_import($from, $caller[0], \@caller, @_);
-
-    my $self = __PACKAGE__->new(
-        from   => $from,
-        caller => \@caller,
-    );
-
-    $self->do_import($caller[0], @_);
-}
 
 ###########################################################################
 #
@@ -580,44 +553,35 @@ sub _optimal_import {
 
     my %new_style = $from->can('IMPORTER_MENU') ? $from->IMPORTER_MENU : ();
 
-    my %final;
     no strict 'refs';
+
     return 0 if $new_style{export_fail} || @{"$from\::EXPORT_FAIL"};
     @args = @{$new_style{export} || "$from\::EXPORT"} unless @args;
-    my %allowed = map +($_ => 1), @{$new_style{export} || "$from\::EXPORT"}, @{$new_style{export_ok} || "$from\::EXPORT_OK"};
-    use strict 'refs';
+    my %allowed = map +(substr($_, 0, 1) eq '&' ? substr($_, 1) : $_ => 1),
+        @{$new_style{export} || "$from\::EXPORT"},
+        @{$new_style{export_ok} || "$from\::EXPORT_OK"};
 
-    for my $arg (@args) {
-        # Get sigil, or first letter of name
-        my $sig = substr($arg, 0, 1);
+    # The things we do for optimization, this is to avoid adding a scope.
+    # We have a conditionalm if it is true we return 0 so we can do a complex import.
+    # If the conditional is false we add the export to the list of exports.
+    # This lets us abort as soon as possible for a complex import. For an
+    # import that is not complex it lets us continue quickly.
+    # Conditional first checks if it has a sigil other than '&'
+    # Conditional then checks if the item is in the allowed list. The item may
+    # have a '&' sigil which will make it fail the check, in which case we
+    # strip the sigil and try again.
+    my %final = map +(
+        $NON_OPTIMAL{substr($_, 0, 1)} || !($allowed{$_} || (substr($_, 0, 1, "") && $allowed{$_}))
+            ? return 0
+            : ($_ => \&{"$from\::$_"})
+    ), @args;
 
-        # Return if non-sub sigil
-        return 0 if $NON_OPTIMAL{$sig};
-
-        # Strip sigil (if sub)
-        my $name = $arg;
-        substr($name, 0, 1, '') if $sig eq '&';
-
-        # Check if the name is allowed (with or without sigil)
-        return 0 unless $allowed{$name} || $allowed{$arg};
-
-        no strict 'refs';
-        $final{$name} = \&{"$from\::$name"};
-    }
-
-    # This is necessary for the eval.
-    my $IMPORTED = \%IMPORTED;
-
-    # This effects the eval, which is what we want. Putting this here means it
-    # runs once, at build time. Putting it inside the eval means it runs each
-    # time _optimal_import is called, which is costly.
-    no strict 'refs';
     eval <<"    EOT" || die $@;
 # If the caller has redefine warnings enabled then we want to warn them if
 # their import redefines things.
 BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] };
 #line $caller->[2] "$caller->[1]"
-(*{"$into\\::\$_"} = \$final{\$_}, push \@{\$IMPORTED->{\$into}} => \$_) for keys %final;
+(*{"$into\\::\$_"} = \$final{\$_}, push \@{\$Importer::IMPORTED{\$into}} => \$_) for keys %final;
 1;
     EOT
 }
@@ -645,8 +609,7 @@ other variables.
 
 =head1 *** EXPERIMENTAL ***
 
-This module is still experimental. Anything can change at any time. Testing is
-currently VERY insufficient.
+This module is still experimental. Anything can change at any time.
 
 =head1 SYNOPSYS
 
@@ -828,12 +791,16 @@ List of symbols to export. Sigil is optional for subs. Symbols listed here are
 exported by default. If possible you should put symbols in C<@EXPORT_OK>
 instead.
 
+    our @EXPORT = qw/foo bar &baz $BAT/;
+
 =head2 @EXPORT_OK
 
 This is used exactly the way L<Exporter> uses it.
 
 List of symbols that can be imported. Sigil is optional for subs. Symbols
 listed here are not exported by default. This is preferred over C<@EXPORT>.
+
+    our @EXPORT_OK = qw/foo bar &baz $BAT/;
 
 =head2 %EXPORT_TAGS
 
@@ -851,6 +818,8 @@ Use this to list subs that are not available on all platforms. If someone tries
 to import one of these, Importer will hit your C<< $from->export_fail(@items) >>
 callback to try to resolve the issue. See L<Exporter.pm> for documentation of
 this feature.
+
+    our @EXPORT_FAIL = qw/maybe_bad/;
 
 =head2 %EXPORT_ANON
 
@@ -925,13 +894,6 @@ name, or a caller level.
 
 =back
 
-=head1 GIVING YOUR PACKAGE AN OLD-SCHOOL IMPORT METHOD
-
-    package My::Exporter;
-    use Importer Importer => ('exporter_import' => {-as => 'import'});
-
-    ...
-
 =head1 USING WITH OTHER EXPORTER IMPLEMENTATIONS
 
 If you want your module to work with Importer, but you use something other than
@@ -966,8 +928,10 @@ to support Importer by putting this sub in your package:
         return $ref;
     }
 
-All exports must be listed in either C<@EXPORT> or C<@EXPORT_OK> to be allowed.
-C<%EXPORT_TAGS>, C<@EXPORT_FAIL>, and C<\&GENERATE> are optional.
+All exports must be listed in either C<@EXPORT> or C<@EXPORT_OK>, or be keys in
+C<%EXPORT_GEN> or C<%EXPORT_ANON> to be allowed. 'export_tags', 'export_fail',
+'export_anon', 'export_gen', and 'generate' are optional. You cannot combine
+'generate' and 'export_gen'.
 
 B<Note:> If your GENERATE sub needs the C<$class>, C<$into>, or C<$caller> then
 your C<IMPORTER_MENU()> method will need to build an anonymous sub that closes

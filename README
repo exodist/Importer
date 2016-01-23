@@ -12,7 +12,6 @@ DESCRIPTION
 
 *** EXPERIMENTAL ***
     This module is still experimental. Anything can change at any time.
-    Testing is currently VERY insufficient.
 
 SYNOPSYS
         # Import defaults
@@ -167,12 +166,16 @@ SUPPORTED VARIABLES
     here are exported by default. If possible you should put symbols in
     @EXPORT_OK instead.
 
+        our @EXPORT = qw/foo bar &baz $BAT/;
+
   @EXPORT_OK
     This is used exactly the way Exporter uses it.
 
     List of symbols that can be imported. Sigil is optional for subs.
     Symbols listed here are not exported by default. This is preferred over
     @EXPORT.
+
+        our @EXPORT_OK = qw/foo bar &baz $BAT/;
 
   %EXPORT_TAGS
     This module supports tags exactly the way Exporter does.
@@ -188,6 +191,8 @@ SUPPORTED VARIABLES
     someone tries to import one of these, Importer will hit your
     "$from->export_fail(@items)" callback to try to resolve the issue. See
     Exporter.pm for documentation of this feature.
+
+        our @EXPORT_FAIL = qw/maybe_bad/;
 
   %EXPORT_ANON
     This is new to this module, Exporter does not support it.
@@ -284,8 +289,10 @@ USING WITH OTHER EXPORTER IMPLEMENTATIONS
             return $ref;
         }
 
-    All exports must be listed in either @EXPORT or @EXPORT_OK to be
-    allowed. %EXPORT_TAGS, @EXPORT_FAIL, and "\&GENERATE" are optional.
+    All exports must be listed in either @EXPORT or @EXPORT_OK, or be keys
+    in %EXPORT_GEN or %EXPORT_ANON to be allowed. 'export_tags',
+    'export_fail', 'export_anon', 'export_gen', and 'generate' are optional.
+    You cannot combine 'generate' and 'export_gen'.
 
     Note: If your GENERATE sub needs the $class, $into, or $caller then your
     "IMPORTER_MENU()" method will need to build an anonymous sub that closes

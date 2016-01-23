@@ -13,8 +13,7 @@ other variables.
 
 # \*\*\* EXPERIMENTAL \*\*\*
 
-This module is still experimental. Anything can change at any time. Testing is
-currently VERY insufficient.
+This module is still experimental. Anything can change at any time.
 
 # SYNOPSYS
 
@@ -188,12 +187,16 @@ List of symbols to export. Sigil is optional for subs. Symbols listed here are
 exported by default. If possible you should put symbols in `@EXPORT_OK`
 instead.
 
+    our @EXPORT = qw/foo bar &baz $BAT/;
+
 ## @EXPORT\_OK
 
 This is used exactly the way [Exporter](https://metacpan.org/pod/Exporter) uses it.
 
 List of symbols that can be imported. Sigil is optional for subs. Symbols
 listed here are not exported by default. This is preferred over `@EXPORT`.
+
+    our @EXPORT_OK = qw/foo bar &baz $BAT/;
 
 ## %EXPORT\_TAGS
 
@@ -211,6 +214,8 @@ Use this to list subs that are not available on all platforms. If someone tries
 to import one of these, Importer will hit your `$from->export_fail(@items)`
 callback to try to resolve the issue. See [Exporter.pm](https://metacpan.org/pod/Exporter.pm) for documentation of
 this feature.
+
+    our @EXPORT_FAIL = qw/maybe_bad/;
 
 ## %EXPORT\_ANON
 
@@ -315,8 +320,10 @@ to support Importer by putting this sub in your package:
         return $ref;
     }
 
-All exports must be listed in either `@EXPORT` or `@EXPORT_OK` to be allowed.
-`%EXPORT_TAGS`, `@EXPORT_FAIL`, and `\&GENERATE` are optional.
+All exports must be listed in either `@EXPORT` or `@EXPORT_OK`, or be keys in
+`%EXPORT_GEN` or `%EXPORT_ANON` to be allowed. 'export\_tags', 'export\_fail',
+'export\_anon', 'export\_gen', and 'generate' are optional. You cannot combine
+'generate' and 'export\_gen'.
 
 **Note:** If your GENERATE sub needs the `$class`, `$into`, or `$caller` then
 your `IMPORTER_MENU()` method will need to build an anonymous sub that closes
