@@ -190,7 +190,7 @@ SUPPORTED VARIABLES
     Use this to list subs that are not available on all platforms. If
     someone tries to import one of these, Importer will hit your
     "$from->export_fail(@items)" callback to try to resolve the issue. See
-    Exporter.pm for documentation of this feature.
+    Exporter for documentation of this feature.
 
         our @EXPORT_FAIL = qw/maybe_bad/;
 
@@ -249,18 +249,13 @@ CLASS METHODS
         This lets you remove imported symbols from $from. $from my be a
         package name, or a caller level.
 
-GIVING YOUR PACKAGE AN OLD-SCHOOL IMPORT METHOD
-        package My::Exporter;
-        use Importer Importer => ('exporter_import' => {-as => 'import'});
-
-        ...
-
 USING WITH OTHER EXPORTER IMPLEMENTATIONS
     If you want your module to work with Importer, but you use something
     other than Exporter to define your exports, you can make it work be
     defining the "IMPORTER_MENU" method in your package. As well other
     exporters can be updated to support Importer by putting this sub in your
-    package:
+    package. IMPORTER_MENU() must be defined in your package, not a base
+    class!
 
         sub IMPORTER_MENU {
             my $class = shift;

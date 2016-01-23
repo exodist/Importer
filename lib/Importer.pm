@@ -15,13 +15,7 @@ my %SIG_TO_SLOT = (
 our %IMPORTED;
 
 # This will be used to check if an import arg is a version number
-my %NUMERIC = map { $_ => 1 } 0 .. 9;
-
-# If a consumer just wants subs then we can optimize the import. This is used
-# as a lookup table to find non-optimal sigils. Can't just look for '&' since a
-# sub can be listed without a sigil, so alpha-numerics may also be checked
-# against thi stable, and we want those to be considered optimal.
-my %NON_OPTIMAL = ( '$' => 1, '@' => 1, '%' => 1, '*' => 1 );
+my %NUMERIC = map +($_ => 1), 0 .. 9;
 
 ###########################################################################
 #
@@ -48,7 +42,16 @@ sub import {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $caller[0], \@caller, @args);
+    no strict 'refs';
+    no warnings 'once';
+    _optimal_import($from, $caller[0], \@caller, @args)
+        and return
+        unless defined *{"$from\::IMPORTER_MENU"}{CODE} # Origin package has a custom menu
+            || defined *{"$from\::EXPORT_FAIL"}{ARRAY}  # Origin package has a failure handler
+            || defined *{"$from\::EXPORT_GEN"}{HASH}    # Origin package has generators
+            || defined *{"$from\::EXPORT_ANON"}{HASH};  # Origin package has anonymous exports
+    use strict 'refs';
+    use warnings 'once';
 
     my $self = $class->new(
         from   => $from,
@@ -88,7 +91,16 @@ sub import_into {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $into, \@caller, @args);
+    no strict 'refs';
+    no warnings 'once';
+    _optimal_import($from, $into, \@caller, @args)
+        and return
+        unless defined *{"$from\::IMPORTER_MENU"}{CODE} # Origin package has a custom menu
+            || defined *{"$from\::EXPORT_FAIL"}{ARRAY}  # Origin package has a failure handler
+            || defined *{"$from\::EXPORT_GEN"}{HASH}    # Origin package has generators
+            || defined *{"$from\::EXPORT_ANON"}{HASH};  # Origin package has anonymous exports
+    use strict 'refs';
+    use warnings 'once';
 
     my $self = $class->new(
         from   => $from,
@@ -222,21 +234,25 @@ sub get_caller {
     }
 
     # Fallback
-    return [caller(1)];
+    return [caller(0)];
 }
 
 sub croak {
     my $self = shift;
     my ($msg) = @_;
     my $caller = $self->get_caller;
-    die "$msg at $caller->[1] line $caller->[2].\n";
+    my $file = $caller->[1] || 'unknown file';
+    my $line = $caller->[2] || 'unknown line';
+    die "$msg at $file line $line.\n";
 }
 
 sub carp {
     my $self = shift;
     my ($msg) = @_;
     my $caller = $self->get_caller;
-    warn "$msg at $caller->[1] line $caller->[2].\n";
+    my $file = $caller->[1] || 'unknown file';
+    my $line = $caller->[2] || 'unknown line';
+    warn "$msg at $file line $line.\n";
 }
 
 sub menu {
@@ -261,13 +277,18 @@ sub reload_menu {
     my $from = $self->from;
 
     my ($export, $export_ok, $export_tags, $export_fail, $generate, $export_gen, $export_anon, $new_style);
-    if ($from->can('IMPORTER_MENU')) {
+
+    no strict 'refs';
+    no warnings 'once';
+    if (my $menu_sub = *{"$from\::IMPORTER_MENU"}{CODE}) {
+        use strict 'refs';
+        use warnings 'once';
         # Hook, other exporter modules can define this method to be compatible with
         # Importer.pm
 
         $new_style = 1;
 
-        my %got = $from->IMPORTER_MENU($into, $self->get_caller);
+        my %got = $from->$menu_sub($into, $self->get_caller);
         $export      = $got{export}      || [];
         $export_ok   = $got{export_ok}   || [];
         $export_tags = $got{export_tags} || {};
@@ -283,8 +304,6 @@ sub reload_menu {
         $export_gen ||= {};
     }
     else {
-        no strict 'refs';
-        no warnings 'once';
         $export      = \@{"$from\::EXPORT"};
         $export_ok   = \@{"$from\::EXPORT_OK"};
         $export_tags = \%{"$from\::EXPORT_TAGS"};
@@ -292,6 +311,8 @@ sub reload_menu {
         $export_gen  = \%{"$from\::EXPORT_GEN"};
         $export_anon = \%{"$from\::EXPORT_ANON"};
     }
+    use strict 'refs';
+    use warnings 'once';
 
     $generate ||= sub {
         my $symbol = shift;
@@ -311,7 +332,6 @@ sub reload_menu {
     for my $sym (@$export, @$export_ok, keys %$export_gen, keys %$export_anon) {
         my ($sig, $name) = ($sym =~ m/^(\W?)(.*)$/);
         $sig ||= '&';
-        my $slot = $SIG_TO_SLOT{$sig};
 
         $lookup->{"${sig}${name}"} = 1;
         $lookup->{$name} = 1 if $sig eq '&';
@@ -321,7 +341,15 @@ sub reload_menu {
 
         no strict 'refs';
         no warnings 'once';
-        $exports->{"${sig}${name}"} = $export_anon->{$sym} || ($slot eq 'SCALAR' ? \${"$from\::$name"} : *{"$from\::$name"}{$slot});
+        my $fqn = "$from\::$name";
+        $exports->{"${sig}${name}"} = $export_anon->{$sym} || (
+            $sig eq '&' ? \&{$fqn} :
+            $sig eq '$' ? \${$fqn} :
+            $sig eq '@' ? \@{$fqn} :
+            $sig eq '%' ? \%{$fqn} :
+            $sig eq '*' ? \*{$fqn} :
+            die "This should not happen"
+        );
     }
 
     my $f_import = $new_style || $from->can('import');
@@ -500,8 +528,10 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
         $self->croak("$from does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
+        my $type = ref($ref);
+        $type = 'SCALAR' if $type eq 'REF';
         $self->croak("Symbol '$sig$name' requested, but reference (" . ref($ref) . ") does not match sigil ($sig)")
-            if $ref && ref($ref) ne $SIG_TO_SLOT{$sig};
+            if $ref && $type ne $SIG_TO_SLOT{$sig};
 
         # If they directly renamed it then we assume they want it under the new
         # name, otherwise excludes get kicked. It is useful to be able to
@@ -551,29 +581,26 @@ require \$file;
 sub _optimal_import {
     my ($from, $into, $caller, @args) = @_;
 
-    my %new_style = $from->can('IMPORTER_MENU') ? $from->IMPORTER_MENU : ();
-
     no strict 'refs';
 
-    return 0 if $new_style{export_fail} || @{"$from\::EXPORT_FAIL"};
-    @args = @{$new_style{export} || "$from\::EXPORT"} unless @args;
-    my %allowed = map +(substr($_, 0, 1) eq '&' ? substr($_, 1) : $_ => 1),
-        @{$new_style{export} || "$from\::EXPORT"},
-        @{$new_style{export_ok} || "$from\::EXPORT_OK"};
+    # Default to @EXPORT
+    @args = @{"$from\::EXPORT"} unless @args;
 
-    # The things we do for optimization, this is to avoid adding a scope.
-    # We have a conditionalm if it is true we return 0 so we can do a complex import.
-    # If the conditional is false we add the export to the list of exports.
-    # This lets us abort as soon as possible for a complex import. For an
-    # import that is not complex it lets us continue quickly.
-    # Conditional first checks if it has a sigil other than '&'
-    # Conditional then checks if the item is in the allowed list. The item may
-    # have a '&' sigil which will make it fail the check, in which case we
-    # strip the sigil and try again.
+    # Subs will be listed without sigil in %allowed, all others keep sigil
+    my %allowed = map +(substr($_, 0, 1) eq '&' ? substr($_, 1) : $_ => 1),
+        @{"$from\::EXPORT"}, @{"$from\::EXPORT_OK"};
+
+    # First check if it is allowed, stripping '&' if necessary, which will also
+    # let scalars in, we will deal with those shortly.
+    # If not allowed return 0 (need to do a heavy import)
+    # if it is allowed then see if it has a CODE slot, if so use it, otherwise
+    # we have a symbol that needs heavy due to non-sub, autoload, etc.
+    # This will not allow $foo to import foo() since '$from' still contains the
+    # sigil making it an invalid symbol name in our globref below.
     my %final = map +(
-        $NON_OPTIMAL{substr($_, 0, 1)} || !($allowed{$_} || (substr($_, 0, 1, "") && $allowed{$_}))
-            ? return 0
-            : ($_ => \&{"$from\::$_"})
+        ($allowed{$_} || (substr($_, 0, 1, "") eq '&' && $allowed{$_}))
+            ? ($_ => *{"$from\::$_"}{CODE} || return 0)
+            : return 0
     ), @args;
 
     eval <<"    EOT" || die $@;
@@ -603,7 +630,7 @@ Importer - Alternative but compatible interface to modules that export symbols.
 This module acts as a layer between L<Exporter> and modules which consume
 exports. It is feature-compatible with L<Exporter>, plus some much needed
 extras. You can use this to import symbols from any exporter that follows
-L<Exporters> specification. The exporter modules themselves do not need to use
+L<Exporter>s specification. The exporter modules themselves do not need to use
 or inherit from the L<Exporter> module, they just need to set C<@EXPORT> and/or
 other variables.
 
@@ -816,7 +843,7 @@ This is used exactly the way L<Exporter> uses it.
 
 Use this to list subs that are not available on all platforms. If someone tries
 to import one of these, Importer will hit your C<< $from->export_fail(@items) >>
-callback to try to resolve the issue. See L<Exporter.pm> for documentation of
+callback to try to resolve the issue. See L<Exporter> for documentation of
 this feature.
 
     our @EXPORT_FAIL = qw/maybe_bad/;
@@ -899,7 +926,8 @@ name, or a caller level.
 If you want your module to work with Importer, but you use something other than
 L<Exporter> to define your exports, you can make it work be defining the
 C<IMPORTER_MENU> method in your package. As well other exporters can be updated
-to support Importer by putting this sub in your package:
+to support Importer by putting this sub in your package.
+B<IMPORTER_MENU() must be defined in your package, not a base class!>
 
     sub IMPORTER_MENU {
         my $class = shift;

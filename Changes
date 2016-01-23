@@ -3,6 +3,7 @@
     - Doc updates
     - Remove Exporter.pm clone
     - Further optimize _optimal_import
+    - Fix bugs found in blead testing
 
 0.005     2016-01-22 09:21:17-08:00 America/Los_Angeles
 

@@ -350,14 +350,14 @@ subtest reload_menu => sub {
                     $ZAP 1 %ZAP 1 @ZAP 1
                 /},
                 exports => {
-                    '&foo' => Fake::ExporterI->can('foo'),
-                    '&bar' => Fake::ExporterI->can('bar'),
-                    '&baz' => Fake::ExporterI->can('baz'),
-                    '&ick' => Fake::ExporterI->can('ick'),
-                    '&x' => Fake::ExporterI->can('__x'),
-                    '&z' => Fake::ExporterI->can('__z'),
+                    '&foo' => \&Fake::ExporterI::foo,
+                    '&bar' => \&Fake::ExporterI::bar,
+                    '&baz' => \&Fake::ExporterI::baz,
+                    '&ick' => \&Fake::ExporterI::ick,
+                    '&x' => \&Fake::ExporterI::__x,
+                    '&z' => \&Fake::ExporterI::__z,
 
-                    '&missing' => undef,
+                    '&missing' => \&Fake::ExporterI::missing,
 
                     '$ZAP' => \$Fake::ExporterI::ZAP,
                     '@ZAP' => \@Fake::ExporterI::ZAP,
@@ -435,14 +435,14 @@ subtest reload_menu => sub {
                     $ZAP 1 %ZAP 1 @ZAP 1
                 /},
                 exports => {
-                    '&foo' => Fake::ExporterE->can('foo'),
-                    '&bar' => Fake::ExporterE->can('bar'),
-                    '&baz' => Fake::ExporterE->can('baz'),
-                    '&ick' => Fake::ExporterE->can('ick'),
-                    '&x' => Fake::ExporterE->can('__x'),
-                    '&z' => Fake::ExporterE->can('__z'),
+                    '&foo' => \&Fake::ExporterE::foo,
+                    '&bar' => \&Fake::ExporterE::bar,
+                    '&baz' => \&Fake::ExporterE::baz,
+                    '&ick' => \&Fake::ExporterE::ick,
+                    '&x' => \&Fake::ExporterE::__x,
+                    '&z' => \&Fake::ExporterE::__z,
 
-                    '&missing' => undef,
+                    '&missing' => \&Fake::ExporterE::missing,
 
                     '$ZAP' => \$Fake::ExporterE::ZAP,
                     '@ZAP' => \@Fake::ExporterE::ZAP,
@@ -699,7 +699,7 @@ subtest _handle_fail => sub {
 subtest _set_symbols => sub {
     {
         package Fake::ForSetSymbols;
-        our @EXPORT      = qw/foo &bar $ZAP %ZAP @ZAP/;
+        our @EXPORT      = qw/foo &bar $ZAP %ZAP @ZAP $REF/;
         our @EXPORT_OK   = qw/baz ick missing/;
         our %EXPORT_TAGS = (b => [qw/bar baz/]);
         our @EXPORT_FAIL = qw/ick/;
@@ -717,6 +717,7 @@ subtest _set_symbols => sub {
         our @ZAP = (qw/Z A P/);
         our $ZAP = 'ZAP';
         our %ZAP = (ZAP => 1);
+        our $REF = \$ZAP;
 
         sub foo { 'foo' }
         sub bar { 'bar' }
@@ -754,6 +755,7 @@ subtest _set_symbols => sub {
             ['&bar' => {-as => 'boo'}],
 
             # Should work fine
+            ['$REF'  => {}],
             ['&foo'  => {}],
             ['&gena' => {}],
             ['&x'    => {}],
@@ -770,6 +772,7 @@ subtest _set_symbols => sub {
 
     {
         no warnings 'once';
+        ok(\$Fake::Dest::A::REF == \$Fake::ForSetSymbols::REF,          'Exported $REF');
         ok(\@Fake::Dest::A::ZAP != \@Fake::ForSetSymbols::ZAP,          'Excluded @ZAP');
         ok(\&Fake::Dest::A::bar != \&Fake::ForSetSymbols::bar,          'Excluded &bar');
         ok(\&Fake::Dest::A::pre_bar_post != \&Fake::ForSetSymbols::bar, 'Excluded &bar with prefix/postfix');
@@ -893,17 +896,6 @@ subtest _optimal_import => sub {
     }
     ok($optimal->('Fake::ForOptimal::B', 'FDestB', ['F', 'F.pm', 4]), "Success with defaults");
     can_ok('FDestB', 'foo', 'bar');
-
-    {
-        package Fake::ForOptimal::C;
-        our @EXPORT = qw/foo &bar/;
-        our @EXPORT_FAIL = qw/bar/;
-        sub foo { 'foo' }
-        sub bar { 'bar' }
-    }
-    ok(!$optimal->('Fake::ForOptimal::C', 'FDestC', ['F', 'F.pm', 4], 'foo'), "Failure die to EXPORT_FAIL");
-    ok(!'FDestC'->can('foo'), 'Did not export anything');
-
 
 
     no warnings 'once';

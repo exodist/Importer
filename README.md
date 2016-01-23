@@ -7,7 +7,7 @@ Importer - Alternative but compatible interface to modules that export symbols.
 This module acts as a layer between [Exporter](https://metacpan.org/pod/Exporter) and modules which consume
 exports. It is feature-compatible with [Exporter](https://metacpan.org/pod/Exporter), plus some much needed
 extras. You can use this to import symbols from any exporter that follows
-[Exporters](https://metacpan.org/pod/Exporters) specification. The exporter modules themselves do not need to use
+[Exporter](https://metacpan.org/pod/Exporter)s specification. The exporter modules themselves do not need to use
 or inherit from the [Exporter](https://metacpan.org/pod/Exporter) module, they just need to set `@EXPORT` and/or
 other variables.
 
@@ -212,7 +212,7 @@ This is used exactly the way [Exporter](https://metacpan.org/pod/Exporter) uses 
 
 Use this to list subs that are not available on all platforms. If someone tries
 to import one of these, Importer will hit your `$from->export_fail(@items)`
-callback to try to resolve the issue. See [Exporter.pm](https://metacpan.org/pod/Exporter.pm) for documentation of
+callback to try to resolve the issue. See [Exporter](https://metacpan.org/pod/Exporter) for documentation of
 this feature.
 
     our @EXPORT_FAIL = qw/maybe_bad/;
@@ -279,19 +279,13 @@ not include sigil for subs).
     This lets you remove imported symbols from `$from`. `$from` my be a package
     name, or a caller level.
 
-# GIVING YOUR PACKAGE AN OLD-SCHOOL IMPORT METHOD
-
-    package My::Exporter;
-    use Importer Importer => ('exporter_import' => {-as => 'import'});
-
-    ...
-
 # USING WITH OTHER EXPORTER IMPLEMENTATIONS
 
 If you want your module to work with Importer, but you use something other than
 [Exporter](https://metacpan.org/pod/Exporter) to define your exports, you can make it work be defining the
 `IMPORTER_MENU` method in your package. As well other exporters can be updated
-to support Importer by putting this sub in your package:
+to support Importer by putting this sub in your package.
+**IMPORTER\_MENU() must be defined in your package, not a base class!**
 
     sub IMPORTER_MENU {
         my $class = shift;
