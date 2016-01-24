@@ -84,7 +84,7 @@ feature (like import renaming).
 
 # IMPORT PARAMETERS
 
-    use Importer $IMPORTER_VERSION, $FROM_MODULE, $FROM_MODULE_VERSION, @SYMBOLS;
+    use Importer $IMPORTER_VERSION, $FROM_MODULE, $FROM_MODULE_VERSION, \&SET_SYMBOL, @SYMBOLS;
 
 - $IMPORTER\_VERSION (optional)
 
@@ -101,6 +101,25 @@ feature (like import renaming).
 
     Any numeric argument following the `$FROM_MODULE` will be treated as a version
     check against `$FROM_MODULE`.
+
+- \\&SET\_SYMBOL (optional)
+
+    Normally Importer will put the exports into your namespace. This is usually
+    done via a more complex form of `*name = $ref`. If you do NOT want this to
+    happen then you can provide a custom sub to handle the assignment.
+
+    This is an example that uses this feature to put all the exports into a lexical
+    hash instead of modifying the namespace (This is how the `get()` method is
+    implemented).
+
+        my %CARP;
+        use Importer Carp => sub {
+            my ($name, $ref) = @_;
+            $CARP{$name} = $ref;
+        };
+
+        $CARP{cluck}->("This will cluck");
+        $CARP{croak}->("This will croak");
 
 - @SYMBOLS (optional)
 
@@ -154,6 +173,11 @@ You can also add a prefix and/or postfix:
 Using this syntax to set prefix and/or postfix also works on tags and patterns
 that are specified for import, in which case the prefix/postfix is applied to
 all symbols from the tag/patterm.
+
+## CUSTOM EXPORT ASSIGNMENT
+
+This lets you provide an alternative to the `*name = $ref` export assingment.
+See the list of [parameters](#import-parameters) to `import()`
 
 ## UNIMPORTING
 
@@ -279,6 +303,26 @@ not include sigil for subs).
     This lets you remove imported symbols from `$from`. `$from` my be a package
     name, or a caller level.
 
+- my $exports = Importer->get($from, @imports)
+
+    This returns hashref of `{ $name => $ref }` for all the specified imports.
+
+    `$from` should be the package from which to get the exports.
+
+- my @export\_refs = Importer->get\_list($from, @imports)
+
+    This returns a list of references for each import specified. Only the export
+    references are returned, the names are not.
+
+    `$from` should be the package from which to get the exports.
+
+- $export\_ref = Importer->get\_one($from, $import)
+
+    This returns a single reference to a single export. If you provide multiple
+    imports then only the LAST one will be used.
+
+    `$from` should be the package from which to get the exports.
+
 # USING WITH OTHER EXPORTER IMPLEMENTATIONS
 
 If you want your module to work with Importer, but you use something other than
@@ -375,8 +419,8 @@ over them:
     used as the target. This means you cannot re-use an instance to import and then
     unimport.
 
-- ($into, $versions, $exclude, $symbols) = $imp->parse\_args('Dest::Package')
-- ($into, $versions, $exclude, $symbols) = $imp->parse\_args('Dest::Package', @symbols)
+- ($into, $versions, $exclude, $symbols, $set) = $imp->parse\_args('Dest::Package')
+- ($into, $versions, $exclude, $symbols, $set) = $imp->parse\_args('Dest::Package', @symbols)
 
     This parses arguments. The first argument must be the destination package.
     Other arguments can be a mix of symbol names, tags, patterns, version numbers,
@@ -447,6 +491,20 @@ over them:
 - $imp->reload\_menu($into)
 
     This will reload the export menu from the `from` package.
+
+- my $exports = $imp->get(@imports)
+
+    This returns hashref of `{ $name => $ref }` for all the specified imports.
+
+- my @export\_refs = $imp->get\_list(@imports)
+
+    This returns a list of references for each import specified. Only the export
+    references are returned, the names are not.
+
+- $export\_ref = $imp->get\_one($import)
+
+    This returns a single reference to a single export. If you provide multiple
+    imports then only the LAST one will be used.
 
 # SOURCE
 

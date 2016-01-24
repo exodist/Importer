@@ -77,7 +77,7 @@ COMPATABILITY
     intentional feature (like import renaming).
 
 IMPORT PARAMETERS
-        use Importer $IMPORTER_VERSION, $FROM_MODULE, $FROM_MODULE_VERSION, @SYMBOLS;
+        use Importer $IMPORTER_VERSION, $FROM_MODULE, $FROM_MODULE_VERSION, \&SET_SYMBOL, @SYMBOLS;
 
     $IMPORTER_VERSION (optional)
         If you provide a numeric argument as the first argument it will be
@@ -91,6 +91,25 @@ IMPORT PARAMETERS
     $FROM_MODULE_VERSION (optional)
         Any numeric argument following the $FROM_MODULE will be treated as a
         version check against $FROM_MODULE.
+
+    \&SET_SYMBOL (optional)
+        Normally Importer will put the exports into your namespace. This is
+        usually done via a more complex form of "*name = $ref". If you do
+        NOT want this to happen then you can provide a custom sub to handle
+        the assignment.
+
+        This is an example that uses this feature to put all the exports
+        into a lexical hash instead of modifying the namespace (This is how
+        the "get()" method is implemented).
+
+            my %CARP;
+            use Importer Carp => sub {
+                my ($name, $ref) = @_;
+                $CARP{$name} = $ref;
+            };
+
+            $CARP{cluck}->("This will cluck");
+            $CARP{croak}->("This will croak");
 
     @SYMBOLS (optional)
         Symbols you wish to import. If no symbols are specified then the
@@ -139,6 +158,10 @@ SUPPORTED FEATURES
     Using this syntax to set prefix and/or postfix also works on tags and
     patterns that are specified for import, in which case the prefix/postfix
     is applied to all symbols from the tag/patterm.
+
+  CUSTOM EXPORT ASSIGNMENT
+    This lets you provide an alternative to the "*name = $ref" export
+    assingment. See the list of parameters to "import()"
 
   UNIMPORTING
     See "UNIMPORT PARAMETERS".
@@ -249,6 +272,24 @@ CLASS METHODS
         This lets you remove imported symbols from $from. $from my be a
         package name, or a caller level.
 
+    my $exports = Importer->get($from, @imports)
+        This returns hashref of "{ $name => $ref }" for all the specified
+        imports.
+
+        $from should be the package from which to get the exports.
+
+    my @export_refs = Importer->get_list($from, @imports)
+        This returns a list of references for each import specified. Only
+        the export references are returned, the names are not.
+
+        $from should be the package from which to get the exports.
+
+    $export_ref = Importer->get_one($from, $import)
+        This returns a single reference to a single export. If you provide
+        multiple imports then only the LAST one will be used.
+
+        $from should be the package from which to get the exports.
+
 USING WITH OTHER EXPORTER IMPLEMENTATIONS
     If you want your module to work with Importer, but you use something
     other than Exporter to define your exports, you can make it work be
@@ -342,9 +383,9 @@ OO Interface
         unimport it is used as the target. This means you cannot re-use an
         instance to import and then unimport.
 
-    ($into, $versions, $exclude, $symbols) =
+    ($into, $versions, $exclude, $symbols, $set) =
     $imp->parse_args('Dest::Package')
-    ($into, $versions, $exclude, $symbols) =
+    ($into, $versions, $exclude, $symbols, $set) =
     $imp->parse_args('Dest::Package', @symbols)
         This parses arguments. The first argument must be the destination
         package. Other arguments can be a mix of symbol names, tags,
@@ -408,6 +449,18 @@ OO Interface
 
     $imp->reload_menu($into)
         This will reload the export menu from the "from" package.
+
+    my $exports = $imp->get(@imports)
+        This returns hashref of "{ $name => $ref }" for all the specified
+        imports.
+
+    my @export_refs = $imp->get_list(@imports)
+        This returns a list of references for each import specified. Only
+        the export references are returned, the names are not.
+
+    $export_ref = $imp->get_one($import)
+        This returns a single reference to a single export. If you provide
+        multiple imports then only the LAST one will be used.
 
 SOURCE
     The source code repository for symbol can be found at
