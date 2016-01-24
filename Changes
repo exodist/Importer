@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    - New Feature: Custom export asignments
+    - New Feature: Get exports as hash/list/ref
+
 0.007     2016-01-23 21:22:00-08:00 America/Los_Angeles
 
     - Less warnings/strict pragmas scattered everywhere

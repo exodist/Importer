@@ -32,6 +32,25 @@ sub warns(&) {
     return $warn || $warned;
 }
 
+
+###
+# These cannot be inside a subtest because of the lexical scopeing
+{
+    my %CARP;
+    use Importer Carp => qw/croak confess/, sub {
+        my ($name, $ref) = @_;
+        $CARP{$name} = $ref;
+    };
+    is_deeply(
+        \%CARP,
+        {
+            croak => \&Carp::croak,
+            confess => \&Carp::confess,
+        },
+        "Exports went into the hash."
+    );
+}
+
 subtest _version_check => sub {
     my $version_check = $CLASS->can('_version_check');
 
@@ -514,9 +533,43 @@ subtest parse_args => sub {
                 ['$ZAP', {}],
                 ['%ZAP', {}],
                 ['@ZAP', {}],
-            ]
+            ],
+            undef,
         ],
         "Got defaults with empty list"
+    );
+
+    my $set = sub { 1 };
+    is_deeply(
+        [$one->parse_args('Dest', $set)],
+        [
+            'Dest',
+            [],
+            {},
+            [
+                ['&foo', {}],
+                ['&bar', {}],
+                ['$ZAP', {}],
+                ['%ZAP', {}],
+                ['@ZAP', {}],
+            ],
+            $set,
+        ],
+        "Got defaults with empty list + custom setter"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', 'foo', $set)],
+        [
+            'Dest',
+            [],
+            {},
+            [
+                ['&foo', {}],
+            ],
+            $set,
+        ],
+        "Got defaults with 1 item + custom setter"
     );
 
     is_deeply(
@@ -531,7 +584,8 @@ subtest parse_args => sub {
                 ['$ZAP', {}],
                 ['%ZAP', {}],
                 ['@ZAP', {}],
-            ]
+            ],
+            undef,
         ],
         "Got defaults, exclude bar"
     );
@@ -548,7 +602,8 @@ subtest parse_args => sub {
                 ['$ZAP', {}],
                 ['%ZAP', {}],
                 ['@ZAP', {}],
-            ]
+            ],
+            undef,
         ],
         "Got defaults, exclude bar"
     );
@@ -565,7 +620,8 @@ subtest parse_args => sub {
                 ['$ZAP', {}],
                 ['%ZAP', {}],
                 ['@ZAP', {}],
-            ]
+            ],
+            undef,
         ],
         "Got defaults, exclude :b"
     );
@@ -581,7 +637,8 @@ subtest parse_args => sub {
                 ['&baz', {-prefix => 'foo_'}],
                 ['&x', {}],
                 ['&y', {}],
-            ]
+            ],
+            undef,
         ],
         "Spec for tag"
     );
@@ -596,7 +653,8 @@ subtest parse_args => sub {
                 ['$ZAP', {-postfix => '_foo'}],
                 ['%ZAP', {-postfix => '_foo'}],
                 ['@ZAP', {-postfix => '_foo'}],
-            ]
+            ],
+            undef,
         ],
         "Spec for pattern"
     );
@@ -611,7 +669,8 @@ subtest parse_args => sub {
                 ['$ZAP', {-postfix => '_foo'}],
                 ['%ZAP', {-postfix => '_foo'}],
                 ['@ZAP', {-postfix => '_foo'}],
-            ]
+            ],
+            undef,
         ],
         "Spec for qr// (also test version)"
     );
@@ -914,4 +973,90 @@ subtest _optimal_import => sub {
     ok(!FDestD->can('foo'), "Removed 'foo'");
 };
 
+subtest get => sub {
+    is_deeply(
+        Importer->get(Carp => qw/croak confess/),
+        {
+            croak => \&Carp::croak,
+            confess => \&Carp::confess,
+        },
+        "Exports went into the hash (class)."
+    );
+
+    is_deeply(
+        Importer->new(from => 'Carp')->get(qw/croak confess/),
+        {
+            croak => \&Carp::croak,
+            confess => \&Carp::confess,
+        },
+        "Exports went into the hash (instance)."
+    );
+};
+
+subtest get_list => sub {
+    is_deeply(
+        [Importer->get_list(Carp => qw/croak confess/)],
+        [ \&Carp::croak, \&Carp::confess ],
+        "list of refs (class)."
+    );
+
+    is_deeply(
+        [Importer->new(from => 'Carp')->get_list(qw/croak confess/)],
+        [ \&Carp::croak, \&Carp::confess ],
+        "list of refs (instance)."
+    );
+};
+
+subtest get_one => sub {
+    is_deeply(
+        Importer->get_one(Carp => qw/confess/),
+        \&Carp::confess,
+        "one ref (class)."
+    );
+
+    is_deeply(
+        Importer->new(from => 'Carp')->get_one(qw/croak/),
+        \&Carp::croak,
+        "one ref (instance)."
+    );
+
+    is_deeply(
+        Importer->get_one(Carp => qw/confess croak/),
+        \&Carp::croak,
+        "one ref (last)."
+    );
+};
+
 done_testing;
+
+__END__
+
+sub get_list {
+    my $proto = shift;
+    my @caller = caller(1);
+
+    my $self = ref($proto) ? $proto : $proto->new(
+        from   => shift(@_),
+        caller => \@caller,
+    );
+
+    my @result;
+    $self->do_import($caller[0], @_, sub { push @result => $_[1] });
+    return @result;
+}
+
+sub get_one {
+    my $proto = shift;
+    my @caller = caller(1);
+
+    my $self = ref($proto) ? $proto : $proto->new(
+        from   => shift(@_),
+        caller => \@caller,
+    );
+
+    my $result;
+    $self->do_import($caller[0], @_, sub { $result = $_[1] });
+    return $result;
+}
+
+

@@ -69,7 +69,6 @@ sub unimport {
     $self->do_unimport(@_);
 }
 
-
 sub import_into {
     my $class = shift;
     my ($from, $into, @args) = @_;
@@ -145,13 +144,60 @@ sub new {
 
 ###########################################################################
 #
+# Shortcuts for getting symbols without any namespace modifications
+#
+
+sub get {
+    my $proto = shift;
+    my @caller = caller(1);
+
+    my $self = ref($proto) ? $proto : $proto->new(
+        from   => shift(@_),
+        caller => \@caller,
+    );
+
+    my %result;
+    $self->do_import($caller[0], @_, sub { $result{$_[0]} = $_[1] });
+    return \%result;
+}
+
+sub get_list {
+    my $proto = shift;
+    my @caller = caller(1);
+
+    my $self = ref($proto) ? $proto : $proto->new(
+        from   => shift(@_),
+        caller => \@caller,
+    );
+
+    my @result;
+    $self->do_import($caller[0], @_, sub { push @result => $_[1] });
+    return @result;
+}
+
+sub get_one {
+    my $proto = shift;
+    my @caller = caller(1);
+
+    my $self = ref($proto) ? $proto : $proto->new(
+        from   => shift(@_),
+        caller => \@caller,
+    );
+
+    my $result;
+    $self->do_import($caller[0], @_, sub { $result = $_[1] });
+    return $result;
+}
+
+###########################################################################
+#
 # Object methods
 #
 
 sub do_import {
     my $self = shift;
 
-    my ($into, $versions, $exclude, $import) = $self->parse_args(@_);
+    my ($into, $versions, $exclude, $import, $set) = $self->parse_args(@_);
 
     # Exporter supported multiple version numbers being listed...
     _version_check($self->from, $self->get_caller, @$versions) if @$versions;
@@ -159,7 +205,7 @@ sub do_import {
     return unless @$import;
 
     $self->_handle_fail($into, $import) if $self->menu($into)->{fail};
-    $self->_set_symbols($into, $exclude, $import);
+    $self->_set_symbols($into, $exclude, $import, $set);
 }
 
 sub do_unimport {
@@ -375,6 +421,7 @@ sub parse_args {
     my %exclude;
     my @import;
     my @versions;
+    my $set;
 
     while(my $full_arg = shift @args) {
         my $arg = $full_arg;
@@ -384,6 +431,12 @@ sub parse_args {
         # If the first character is an ASCII numeric then it is a version number
         if ($NUMERIC{$lead}) {
             push @versions => $arg;
+            next;
+        }
+        elsif(ref($arg) eq 'CODE') {
+            $self->carp("Multiple setters specified, only 1 will be used") if $set;
+            $set = $arg;
+            unshift @args => ':DEFAULT' unless @args || @import || keys %exclude || @versions;
             next;
         }
 
@@ -409,7 +462,7 @@ sub parse_args {
         else {
             # If the item is followed by a reference then they are asking us to
             # do something special...
-            $spec = ref($args[0]) ? shift @args : {};
+            $spec = ref($args[0]) eq 'HASH' ? shift @args : {};
         }
 
         # Process the item to figure out what symbols are being touched, if it
@@ -447,7 +500,7 @@ sub parse_args {
         }
     }
 
-    return ($into, \@versions, \%exclude, \@import);
+    return ($into, \@versions, \%exclude, \@import, $set);
 }
 
 sub _handle_fail {
@@ -475,7 +528,7 @@ sub _handle_fail {
 
 sub _set_symbols {
     my $self = shift;
-    my ($into, $exclude, $import) = @_;
+    my ($into, $exclude, $import, $custom_set) = @_;
 
     my $from   = $self->from;
     my $menu   = $self->menu($into);
@@ -483,7 +536,7 @@ sub _set_symbols {
 
     # Turn of strict 'refs' for the sub we generate. Doing this here instead of
     # in the eval is faster since it only runs once.
-    my $set_symbol = eval <<"    EOT" || die $@;
+    my $set_symbol = $custom_set || eval <<"    EOT" || die $@;
 # Inherit the callers warning settings. If they have warnings and we
 # redefine their subs they will hear about it. If they do not have warnings
 # on they will not.
@@ -519,7 +572,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
 
         my $new_name = join '' => ($spec->{'-prefix'} || '', $spec->{'-as'} || $name, $spec->{'-postfix'} || '');
 
-        push @{$IMPORTED{$into}} => $new_name if $sig eq '&';
+        push @{$IMPORTED{$into}} => $new_name if $sig eq '&' && !$custom_set;
 
         # Set the symbol (finally!)
         $set_symbol->($new_name, $ref);
@@ -688,7 +741,7 @@ feature (like import renaming).
 
 =head1 IMPORT PARAMETERS
 
-    use Importer $IMPORTER_VERSION, $FROM_MODULE, $FROM_MODULE_VERSION, @SYMBOLS;
+    use Importer $IMPORTER_VERSION, $FROM_MODULE, $FROM_MODULE_VERSION, \&SET_SYMBOL, @SYMBOLS;
 
 =over 4
 
@@ -707,6 +760,25 @@ symbols from.
 
 Any numeric argument following the C<$FROM_MODULE> will be treated as a version
 check against C<$FROM_MODULE>.
+
+=item \&SET_SYMBOL (optional)
+
+Normally Importer will put the exports into your namespace. This is usually
+done via a more complex form of C<*name = $ref>. If you do NOT want this to
+happen then you can provide a custom sub to handle the assignment.
+
+This is an example that uses this feature to put all the exports into a lexical
+hash instead of modifying the namespace (This is how the C<get()> method is
+implemented).
+
+    my %CARP;
+    use Importer Carp => sub {
+        my ($name, $ref) = @_;
+        $CARP{$name} = $ref;
+    };
+
+    $CARP{cluck}->("This will cluck");
+    $CARP{croak}->("This will croak");
 
 =item @SYMBOLS (optional)
 
@@ -762,6 +834,11 @@ You can also add a prefix and/or postfix:
 Using this syntax to set prefix and/or postfix also works on tags and patterns
 that are specified for import, in which case the prefix/postfix is applied to
 all symbols from the tag/patterm.
+
+=head2 CUSTOM EXPORT ASSIGNMENT
+
+This lets you provide an alternative to the C<*name = $ref> export assingment.
+See the list of L<parameters|/"IMPORT PARAMETERS"> to C<import()>
 
 =head2 UNIMPORTING
 
@@ -896,6 +973,26 @@ This is the magic behind C<no Importer ...>.
 This lets you remove imported symbols from C<$from>. C<$from> my be a package
 name, or a caller level.
 
+=item my $exports = Importer->get($from, @imports)
+
+This returns hashref of C<< { $name => $ref } >> for all the specified imports.
+
+C<$from> should be the package from which to get the exports.
+
+=item my @export_refs = Importer->get_list($from, @imports)
+
+This returns a list of references for each import specified. Only the export
+references are returned, the names are not.
+
+C<$from> should be the package from which to get the exports.
+
+=item $export_ref = Importer->get_one($from, $import)
+
+This returns a single reference to a single export. If you provide multiple
+imports then only the LAST one will be used.
+
+C<$from> should be the package from which to get the exports.
+
 =back
 
 =head1 USING WITH OTHER EXPORTER IMPLEMENTATIONS
@@ -1003,9 +1100,9 @@ C<do_unimport()>. For import 'from' us used as the origin, in unimport it is
 used as the target. This means you cannot re-use an instance to import and then
 unimport.
 
-=item ($into, $versions, $exclude, $symbols) = $imp->parse_args('Dest::Package')
+=item ($into, $versions, $exclude, $symbols, $set) = $imp->parse_args('Dest::Package')
 
-=item ($into, $versions, $exclude, $symbols) = $imp->parse_args('Dest::Package', @symbols)
+=item ($into, $versions, $exclude, $symbols, $set) = $imp->parse_args('Dest::Package', @symbols)
 
 This parses arguments. The first argument must be the destination package.
 Other arguments can be a mix of symbol names, tags, patterns, version numbers,
@@ -1076,6 +1173,20 @@ The menu structure looks like this:
 =item $imp->reload_menu($into)
 
 This will reload the export menu from the C<from> package.
+
+=item my $exports = $imp->get(@imports)
+
+This returns hashref of C<< { $name => $ref } >> for all the specified imports.
+
+=item my @export_refs = $imp->get_list(@imports)
+
+This returns a list of references for each import specified. Only the export
+references are returned, the names are not.
+
+=item $export_ref = $imp->get_one($import)
+
+This returns a single reference to a single export. If you provide multiple
+imports then only the LAST one will be used.
 
 =back
 
