@@ -1,6 +1,6 @@
 package Importer;
-use strict;
-use warnings;
+use strict qw/vars subs/; # Not refs!
+use warnings; no warnings 'once';
 
 our $VERSION = 0.007;
 
@@ -42,16 +42,12 @@ sub import {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    no strict 'refs';
-    no warnings 'once';
     _optimal_import($from, $caller[0], \@caller, @args)
         and return
         unless defined *{"$from\::IMPORTER_MENU"}{CODE} # Origin package has a custom menu
             || defined *{"$from\::EXPORT_FAIL"}{ARRAY}  # Origin package has a failure handler
             || defined *{"$from\::EXPORT_GEN"}{HASH}    # Origin package has generators
             || defined *{"$from\::EXPORT_ANON"}{HASH};  # Origin package has anonymous exports
-    use strict 'refs';
-    use warnings 'once';
 
     my $self = $class->new(
         from   => $from,
@@ -91,16 +87,12 @@ sub import_into {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    no strict 'refs';
-    no warnings 'once';
     _optimal_import($from, $into, \@caller, @args)
         and return
         unless defined *{"$from\::IMPORTER_MENU"}{CODE} # Origin package has a custom menu
             || defined *{"$from\::EXPORT_FAIL"}{ARRAY}  # Origin package has a failure handler
             || defined *{"$from\::EXPORT_GEN"}{HASH}    # Origin package has generators
             || defined *{"$from\::EXPORT_ANON"}{HASH};  # Origin package has anonymous exports
-    use strict 'refs';
-    use warnings 'once';
 
     my $self = $class->new(
         from   => $from,
@@ -180,22 +172,18 @@ sub do_unimport {
 
     my @args = @_ ? @_ : @$imported;
 
-    no strict 'refs';
     my $stash = \%{"$from\::"};
-    use strict 'refs';
 
     for my $name (@args) {
         $name =~ s/^&//;
 
         $self->croak("Sub '$name' was not imported using " . ref($self)) unless $allowed{$name};
 
-        no warnings 'once';
         my $glob = delete $stash->{$name};
         local *GLOBCLONE = *$glob;
 
         for my $type (qw/SCALAR HASH ARRAY FORMAT IO/) {
             next unless defined(*{$glob}{$type});
-            no strict 'refs';
             *{"$from\::$name"} = *{$glob}{$type}
         }
     }
@@ -278,11 +266,7 @@ sub reload_menu {
 
     my ($export, $export_ok, $export_tags, $export_fail, $generate, $export_gen, $export_anon, $new_style);
 
-    no strict 'refs';
-    no warnings 'once';
     if (my $menu_sub = *{"$from\::IMPORTER_MENU"}{CODE}) {
-        use strict 'refs';
-        use warnings 'once';
         # Hook, other exporter modules can define this method to be compatible with
         # Importer.pm
 
@@ -311,8 +295,6 @@ sub reload_menu {
         $export_gen  = \%{"$from\::EXPORT_GEN"};
         $export_anon = \%{"$from\::EXPORT_ANON"};
     }
-    use strict 'refs';
-    use warnings 'once';
 
     $generate ||= sub {
         my $symbol = shift;
@@ -339,8 +321,6 @@ sub reload_menu {
         next if $export_gen->{"${sig}${name}"};
         next if $sig eq '&' && $export_gen->{$name};
 
-        no strict 'refs';
-        no warnings 'once';
         my $fqn = "$from\::$name";
         $exports->{"${sig}${name}"} = $export_anon->{$sym} || (
             $sig eq '&' ? \&{$fqn} :
@@ -503,7 +483,6 @@ sub _set_symbols {
 
     # Turn of strict 'refs' for the sub we generate. Doing this here instead of
     # in the eval is faster since it only runs once.
-    no strict 'refs';
     my $set_symbol = eval <<"    EOT" || die $@;
 # Inherit the callers warning settings. If they have warnings and we
 # redefine their subs they will hear about it. If they do not have warnings
@@ -512,7 +491,6 @@ BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] }
 #line $caller->[2] "$caller->[1]"
 sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
-    use strict 'refs';
 
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
@@ -581,8 +559,6 @@ require \$file;
 
 sub _optimal_import {
     my ($from, $into, $caller, @args) = @_;
-
-    no strict 'refs';
 
     # Default to @EXPORT
     @args = @{"$from\::EXPORT"} unless @args;

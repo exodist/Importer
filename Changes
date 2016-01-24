@@ -1,5 +1,6 @@
 {{$NEXT}}
 
+    - Less warnings/strict pragmas scattered everywhere
     - Strip '&' from exporter_fail args
     - Fix support for non-exports listed in @EXPORT (Grr CGI.pm)
 
