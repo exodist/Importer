@@ -1028,35 +1028,3 @@ subtest get_one => sub {
 };
 
 done_testing;
-
-__END__
-
-sub get_list {
-    my $proto = shift;
-    my @caller = caller(1);
-
-    my $self = ref($proto) ? $proto : $proto->new(
-        from   => shift(@_),
-        caller => \@caller,
-    );
-
-    my @result;
-    $self->do_import($caller[0], @_, sub { push @result => $_[1] });
-    return @result;
-}
-
-sub get_one {
-    my $proto = shift;
-    my @caller = caller(1);
-
-    my $self = ref($proto) ? $proto : $proto->new(
-        from   => shift(@_),
-        caller => \@caller,
-    );
-
-    my $result;
-    $self->do_import($caller[0], @_, sub { $result = $_[1] });
-    return $result;
-}
-
-
