@@ -477,9 +477,10 @@ sub _handle_fail {
     my $from = $self->from;
     my $menu = $self->menu($into);
 
-    my @fail = grep $menu->{fail}->{$_->[0]}, @$import or return;
+    # Historically Exporter would strip the '&' off of sub names passed into export_fail.
+    my @fail = map {my $x = $_->[0]; $x =~ s/^&//; $x} grep $menu->{fail}->{$_->[0]}, @$import or return;
 
-    my @real_fail = $from->can('export_fail') ? $from->export_fail(map $_->[0], @fail) : map $_->[0], @fail;
+    my @real_fail = $from->can('export_fail') ? $from->export_fail(@fail) : @fail;
 
     if (@real_fail) {
         $self->carp(qq["$_" is not implemented by the $from module on this architecture])
