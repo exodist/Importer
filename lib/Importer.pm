@@ -2,7 +2,7 @@ package Importer;
 use strict;
 use warnings;
 
-our $VERSION = 0.006;
+our $VERSION = 0.007;
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -348,7 +348,7 @@ sub reload_menu {
             $sig eq '@' ? \@{$fqn} :
             $sig eq '%' ? \%{$fqn} :
             $sig eq '*' ? \*{$fqn} :
-            die "This should not happen"
+            next
         );
     }
 
