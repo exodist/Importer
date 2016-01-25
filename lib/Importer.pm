@@ -2,7 +2,7 @@ package Importer;
 use strict qw/vars subs/; # Not refs!
 use warnings; no warnings 'once';
 
-our $VERSION = 0.009;
+our $VERSION = '0.010';
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -42,12 +42,7 @@ sub import {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    _optimal_import($from, $caller[0], \@caller, @args)
-        and return
-        unless defined *{"$from\::IMPORTER_MENU"}{CODE} # Origin package has a custom menu
-            || defined *{"$from\::EXPORT_FAIL"}{ARRAY}  # Origin package has a failure handler
-            || defined *{"$from\::EXPORT_GEN"}{HASH}    # Origin package has generators
-            || defined *{"$from\::EXPORT_ANON"}{HASH};  # Origin package has anonymous exports
+    return if _optimal_import($from, $caller[0], \@caller, @args);
 
     my $self = $class->new(
         from   => $from,
@@ -86,12 +81,7 @@ sub import_into {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    _optimal_import($from, $into, \@caller, @args)
-        and return
-        unless defined *{"$from\::IMPORTER_MENU"}{CODE} # Origin package has a custom menu
-            || defined *{"$from\::EXPORT_FAIL"}{ARRAY}  # Origin package has a failure handler
-            || defined *{"$from\::EXPORT_GEN"}{HASH}    # Origin package has generators
-            || defined *{"$from\::EXPORT_ANON"}{HASH};  # Origin package has anonymous exports
+    return if _optimal_import($from, $into, \@caller, @args);
 
     my $self = $class->new(
         from   => $from,
@@ -310,7 +300,17 @@ sub reload_menu {
 
     my $from = $self->from;
 
-    my ($export, $export_ok, $export_tags, $export_fail, $generate, $export_gen, $export_anon, $new_style);
+    my (
+        $export,
+        $export_ok,
+        $export_tags,
+        $export_fail,
+        $generate,
+        $export_gen,
+        $export_anon,
+        $export_magic,
+        $new_style
+    );
 
     if (my $menu_sub = *{"$from\::IMPORTER_MENU"}{CODE}) {
         # Hook, other exporter modules can define this method to be compatible with
@@ -319,11 +319,12 @@ sub reload_menu {
         $new_style = 1;
 
         my %got = $from->$menu_sub($into, $self->get_caller);
-        $export      = $got{export}      || [];
-        $export_ok   = $got{export_ok}   || [];
-        $export_tags = $got{export_tags} || {};
-        $export_fail = $got{export_fail} || [];
-        $export_anon = $got{export_anon} || {};
+        $export       = $got{export}       || [];
+        $export_ok    = $got{export_ok}    || [];
+        $export_tags  = $got{export_tags}  || {};
+        $export_fail  = $got{export_fail}  || [];
+        $export_anon  = $got{export_anon}  || {};
+        $export_magic = $got{export_magic} || {};
 
         $export_gen = $got{export_gen};
         $generate   = $got{generate};
@@ -334,12 +335,13 @@ sub reload_menu {
         $export_gen ||= {};
     }
     else {
-        $export      = \@{"$from\::EXPORT"};
-        $export_ok   = \@{"$from\::EXPORT_OK"};
-        $export_tags = \%{"$from\::EXPORT_TAGS"};
-        $export_fail = \@{"$from\::EXPORT_FAIL"};
-        $export_gen  = \%{"$from\::EXPORT_GEN"};
-        $export_anon = \%{"$from\::EXPORT_ANON"};
+        $export       = \@{"$from\::EXPORT"};
+        $export_ok    = \@{"$from\::EXPORT_OK"};
+        $export_tags  = \%{"$from\::EXPORT_TAGS"};
+        $export_fail  = \@{"$from\::EXPORT_FAIL"};
+        $export_gen   = \%{"$from\::EXPORT_GEN"};
+        $export_anon  = \%{"$from\::EXPORT_ANON"};
+        $export_magic = \%{"$from\::EXPORT_MAGIC"};
     }
 
     $generate ||= sub {
@@ -368,12 +370,17 @@ sub reload_menu {
         next if $sig eq '&' && $export_gen->{$name};
 
         my $fqn = "$from\::$name";
+        # We cannot use *{$fqn}{TYPE} here, it breaks for autoloaded subs, this
+        # does not:
         $exports->{"${sig}${name}"} = $export_anon->{$sym} || (
             $sig eq '&' ? \&{$fqn} :
             $sig eq '$' ? \${$fqn} :
             $sig eq '@' ? \@{$fqn} :
             $sig eq '%' ? \%{$fqn} :
             $sig eq '*' ? \*{$fqn} :
+            # Sometimes people (CGI::Carp) put invalid names (^name=) into
+            # @EXPORT. We simply go to 'next' in these cases. These modules
+            # have hooks to prevent anyone actually trying to import these.
             next
         );
     }
@@ -406,6 +413,7 @@ sub reload_menu {
         tags     => $tags,
         fail     => $fail,
         generate => $generate,
+        magic    => $export_magic,
     };
 }
 
@@ -534,8 +542,6 @@ sub _set_symbols {
     my $menu   = $self->menu($into);
     my $caller = $self->get_caller();
 
-    # Turn of strict 'refs' for the sub we generate. Doing this here instead of
-    # in the eval is faster since it only runs once.
     my $set_symbol = $custom_set || eval <<"    EOT" || die $@;
 # Inherit the callers warning settings. If they have warnings and we
 # redefine their subs they will hear about it. If they do not have warnings
@@ -572,10 +578,20 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
 
         my $new_name = join '' => ($spec->{'-prefix'} || '', $spec->{'-as'} || $name, $spec->{'-postfix'} || '');
 
-        push @{$IMPORTED{$into}} => $new_name if $sig eq '&' && !$custom_set;
-
         # Set the symbol (finally!)
         $set_symbol->($new_name, $ref);
+
+        # The remaining things get skipped with a custom setter
+        next if $custom_set;
+
+        # Record the import so that we can 'unimport'
+        push @{$IMPORTED{$into}} => $new_name if $sig eq '&';
+
+        # Apply magic
+        my $magic = $menu->{magic}->{$symbol};
+        $magic  ||= $menu->{magic}->{$name} if $sig eq '&';
+        $from->$magic(into => $into, orig_name => $name, new_name => $new_name, ref => $ref)
+            if $magic;
     }
 }
 
@@ -610,8 +626,19 @@ require \$file;
     EOT
 }
 
+
+my %HEAVY_VARS = (
+    IMPORTER_MENU => 'CODE',  # Origin package has a custom menu
+    EXPORT_FAIL   => 'ARRAY', # Origin package has a failure handler
+    EXPORT_GEN    => 'HASH',  # Origin package has generators
+    EXPORT_ANON   => 'HASH',  # Origin package has anonymous exports
+    EXPORT_MAGIC  => 'HASH',  # Origin package has magic to apply post-export
+);
+
 sub _optimal_import {
     my ($from, $into, $caller, @args) = @_;
+
+    defined(*{"$from\::$_"}{$HEAVY_VARS{$_}}) and return 0 for keys %HEAVY_VARS;
 
     # Default to @EXPORT
     @args = @{"$from\::EXPORT"} unless @args;
@@ -628,7 +655,7 @@ sub _optimal_import {
     # This will not allow $foo to import foo() since '$from' still contains the
     # sigil making it an invalid symbol name in our globref below.
     my %final = map +(
-        ($allowed{$_} || (substr($_, 0, 1, "") eq '&' && $allowed{$_}))
+        (!ref($_) && ($allowed{$_} || (substr($_, 0, 1, "") eq '&' && $allowed{$_})))
             ? ($_ => *{"$from\::$_"}{CODE} || return 0)
             : return 0
     ), @args;
@@ -664,10 +691,6 @@ L<Exporter>s specification. The exporter modules themselves do not need to use
 or inherit from the L<Exporter> module, they just need to set C<@EXPORT> and/or
 other variables.
 
-=head1 *** EXPERIMENTAL ***
-
-This module is still experimental. Anything can change at any time.
-
 =head1 SYNOPSYS
 
     # Import defaults
@@ -688,6 +711,15 @@ This module is still experimental. Anything can change at any time.
 
     # Remove all subroutines imported by Importer
     no Importer;
+
+    # Import symbols into variables
+    my $croak = Importer->get_one(Carp => qw/croak/);
+    $croak->("This will croak");
+
+    my $CARP = Importer->get(Carp => qw/croak confess cluck/);
+    $CARP->{croak}->("This will croak");
+    $CARP->{cluck}->("This will cluck");
+    $CARP->{confess}->("This will confess");
 
 =head1 WHY?
 
@@ -891,6 +923,13 @@ This module supports tags exactly the way L<Exporter> does.
 
     use Importer 'Other::Thing' => ':some_tag';
 
+Tags can be specified this way:
+
+    our %EXPORT_TAGS = (
+        oos => [qw/foo boo zoo/],
+        ees => [qw/fee bee zee/],
+    );
+
 =head2 @EXPORT_FAIL
 
 This is used exactly the way L<Exporter> uses it.
@@ -935,6 +974,29 @@ not include sigil for subs).
             return sub { ... };
         },
         ...
+    );
+
+=head2 %EXPORT_MAGIC
+
+This is new to this module. L<Exporter> does not support it.
+
+This allows you to define custom actions to run AFTER an export has been
+injected into the consumers namespace. This is a good place to enable parser
+hooks like with L<Devel::Declare>. These will NOT be run if a consumer uses a
+custom assignment callback.
+
+    our %EXPORT_MAGIC = (
+        foo => sub {
+            my $from = shift;    # Should be the package doing the exporting
+            my %args = @_;
+
+            my $into      = $args{into};         # Package symbol was exported into
+            my $orig_name = $args{orig_name};    # Original name of the export (in the exporter)
+            my $new_name  = $args{new_name};     # Name the symbol was imported as
+            my $ref       = $args{ref};          # The reference to the symbol
+
+            ...; # whatever you want, return is ignored.
+        },
     );
 
 =head1 CLASS METHODS
@@ -1008,17 +1070,18 @@ B<IMPORTER_MENU() must be defined in your package, not a base class!>
         my ($into, $caller) = @_;
 
         return (
-            export      => \@EXPORT,      # Default exports
-            export_ok   => \@EXPORT_OK,   # Other allowed exports
-            export_tags => \%EXPORT_TAGS, # Define tags
-            export_fail => \@EXPORT_FAIL, # For subs that may not always be available
-            export_anon => \%EXPORT_ANON, # Anonymous symbols to export
+            export       => \@EXPORT,          # Default exports
+            export_ok    => \@EXPORT_OK,       # Other allowed exports
+            export_tags  => \%EXPORT_TAGS,     # Define tags
+            export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
+            export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
+            export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
 
-            generate    => \&GENERATE,    # Sub to generate dynamic exports
-            # OR
-            export_gen  => \%EXPORT_GEN,  # Hash of builders, key is symbol
-                                          # name, value is sub that generates
-                                          # the symbol ref.
+            generate   => \&GENERATE,          # Sub to generate dynamic exports
+                                               # OR
+            export_gen => \%EXPORT_GEN,        # Hash of builders, key is symbol
+                                               # name, value is sub that generates
+                                               # the symbol ref.
         );
     }
 
@@ -1057,6 +1120,12 @@ over them:
 
     $imp->do_import('Destination::Package');
     $imp->do_import('Another::Destination', @symbols);
+
+Or, maybe more useful:
+
+    my $imp = Importer->new(from => 'Carp');
+    my $croak = $imp->get_one('croak');
+    $croak->("This will croak");
 
 =head2 OBJECT CONSTRUCTION
 
@@ -1157,6 +1226,9 @@ The menu structure looks like this:
         # arrayref of symbol names, subs may have a sigil, but are not required
         # to.
         tags => { DEFAULT => [...], foo => [...], ... },
+
+        # Magic to apply
+        magic => { foo => sub { ... }, ... },
 
         # This is a hashref just like 'lookup'. Keys are symbols which may not
         # always be available. If there are no symbols in this category then

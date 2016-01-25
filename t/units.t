@@ -290,6 +290,7 @@ subtest reload_menu => sub {
                 tags     => { DEFAULT => [] },
                 fail     => undef,
                 generate => undef,
+                magic    => {},
             },
             "Got valid, but empty menu"
         );
@@ -387,6 +388,7 @@ subtest reload_menu => sub {
                     DEFAULT => [qw/foo &bar $ZAP %ZAP @ZAP/],
                 },
                 fail => { '&ick' => 1, ick => 1 },
+                magic => {},
             },
             "Got menu"
         );
@@ -472,6 +474,7 @@ subtest reload_menu => sub {
                     DEFAULT => [qw/foo &bar $ZAP %ZAP @ZAP/],
                 },
                 fail => { '&ick' => 1, ick => 1 },
+                magic => {},
             },
             "Got menu"
         );
@@ -1024,6 +1027,31 @@ subtest get_one => sub {
         Importer->get_one(Carp => qw/confess croak/),
         \&Carp::croak,
         "one ref (last)."
+    );
+};
+
+subtest magic => sub {
+    BEGIN {
+        $INC{'Magic/Exporter.pm'} = 1;
+        package Magic::Exporter;
+        our @EXPORT = qw/foo/;
+        our %EXPORT_MAGIC = ( foo => sub { $main::MAGIC = [@_] } );
+
+        sub foo { 1 }
+    }
+
+    use Importer 'Magic::Exporter' => (foo => { -as => 'foo2' });
+    can_ok(__PACKAGE__, 'foo2');
+    is_deeply(
+        $main::MAGIC,
+        [
+            'Magic::Exporter',
+            into => __PACKAGE__,
+            orig_name => 'foo',
+            new_name => 'foo2',
+            ref => \&Magic::Exporter::foo,
+        ],
+        "Magic callback was called, args as expected"
     );
 };
 
