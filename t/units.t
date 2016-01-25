@@ -62,7 +62,7 @@ subtest _version_check => sub {
     my $file = __FILE__;
     like(
         $error,
-        qr/version 100 required.*at $file line $line/,
+        qr/version 100 required.*at \Q$file\E line $line/,
         "Got expected error"
     );
 };
@@ -234,7 +234,7 @@ subtest menu => sub {
     my $line;
     like(
         dies { $line = __LINE__; $one->menu() },
-        qr/menu\(\) requires the name of the destination package at ${\__FILE__} line $line/,
+        qr/menu\(\) requires the name of the destination package at \Q${\__FILE__}\E line $line/,
         "Need 'into' package"
     );
 };
@@ -245,7 +245,7 @@ subtest reload_menu => sub {
     my $line;
     like(
         dies { $line = __LINE__; $one->reload_menu() },
-        qr/menu\(\) requires the name of the destination package at ${\__FILE__} line $line/,
+        qr/menu\(\) requires the name of the destination package at \Q${\__FILE__}\E line $line/,
         "Need 'into' package"
     );
 
@@ -261,13 +261,13 @@ subtest reload_menu => sub {
 
         like(
             dies { $line = __LINE__; $CLASS->new(from => 'Fake::Exporter4')->reload_menu('fake') },
-            qr/'Fake::Exporter4' provides both 'generate' and 'export_gen' in its IMPORTER_MENU \(They are exclusive, module must pick 1\) at ${\__FILE__} line $line/,
+            qr/'Fake::Exporter4' provides both 'generate' and 'export_gen' in its IMPORTER_MENU \(They are exclusive, module must pick 1\) at \Q${\__FILE__}\E line $line/,
             "Bad IMPORT_MENU"
         );
 
         like(
             dies { $line = __LINE__; $CLASS->new(from => 'Fake::Exporter5')->reload_menu('fake') },
-            qr/'Fake::Exporter5' does not provide any exports at ${\__FILE__} line $line/,
+            qr/'Fake::Exporter5' does not provide any exports at \Q${\__FILE__}\E line $line/,
             "No exports, not an exporter"
         );
 
