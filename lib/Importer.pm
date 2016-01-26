@@ -2,7 +2,7 @@ package Importer;
 use strict qw/vars subs/; # Not refs!
 use warnings; no warnings 'once';
 
-our $VERSION = '0.010';
+our $VERSION = '0.011';
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -969,6 +969,7 @@ not include sigil for subs).
 
     our %EXPORT_GEN = (
         '&foo' => sub {
+            my $from_package = shift;
             my ($into_package, $symbol_name) = @_;
             ...
             return sub { ... };
