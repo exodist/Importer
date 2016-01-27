@@ -782,7 +782,7 @@ feature (like import renaming).
 =item $IMPORTER_VERSION (optional)
 
 If you provide a numeric argument as the first argument it will be treated as a
-version number. Importer will d a version check to make sure it is at least at
+version number. Importer will do a version check to make sure it is at least at
 the requested version.
 
 =item $FROM_MODULE (required)
@@ -862,7 +862,7 @@ import name:
 You can also add a prefix and/or postfix:
 
     use Importer 'Some::Thing' => (
-        foo => { -prefix => 'my_foo' },
+        foo => { -prefix => 'my_' },
     );
 
 Using this syntax to set prefix and/or postfix also works on tags and patterns
@@ -1288,8 +1288,8 @@ the symbol table will occur.
 
 =head1 SOURCE
 
-The source code repository for symbol can be found at
-F<http://github.com/exodist/Importer>.
+The source code repository for Importer can be found at
+L<http://github.com/exodist/Importer>.
 
 =head1 MAINTAINERS
 
@@ -1314,6 +1314,6 @@ Copyright 2015 Chad Granum E<lt>exodist7@gmail.comE<gt>.
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
 
-See F<http://dev.perl.org/licenses/>
+See L<http://dev.perl.org/licenses/>
 
 =cut
