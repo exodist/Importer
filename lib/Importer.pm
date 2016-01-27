@@ -12,6 +12,8 @@ my %SIG_TO_SLOT = (
     '*' => 'GLOB',
 );
 
+our @EXPORT_OK = qw/optimal_import/;
+
 our %IMPORTED;
 
 # This will be used to check if an import arg is a version number
@@ -42,7 +44,7 @@ sub import {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $caller[0], \@caller, @args);
+    return if optimal_import($from, $caller[0], \@caller, @args);
 
     my $self = $class->new(
         from   => $from,
@@ -81,7 +83,7 @@ sub import_into {
     my $file = _mod_to_file($from);
     _load_file(\@caller, $file) unless $INC{$file};
 
-    return if _optimal_import($from, $into, \@caller, @args);
+    return if optimal_import($from, $into, \@caller, @args);
 
     my $self = $class->new(
         from   => $from,
@@ -635,7 +637,7 @@ my %HEAVY_VARS = (
     EXPORT_MAGIC  => 'HASH',  # Origin package has magic to apply post-export
 );
 
-sub _optimal_import {
+sub optimal_import {
     my ($from, $into, $caller, @args) = @_;
 
     defined(*{"$from\::$_"}{$HEAVY_VARS{$_}}) and return 0 for keys %HEAVY_VARS;
@@ -1260,6 +1262,27 @@ references are returned, the names are not.
 
 This returns a single reference to a single export. If you provide multiple
 imports then only the LAST one will be used.
+
+=back
+
+=head1 FUNCTIONS
+
+These can be imported:
+
+    use Importer 'Importer' => qw/optimal_import/;
+
+=over 4
+
+=item $bool = optimal_import($from, $into, \@caller, @imports)
+
+This function will attempt to import C<@imports> from the C<$from> package into
+the C<$into> package. C<@caller> needs to have a package name, filename, and
+line number. If this function fails then no exporting will actually happen.
+
+If the import is successful this will return true.
+
+If the import is unsuccessful this will return false, and no modifications to
+the symbol table will occur.
 
 =back
 

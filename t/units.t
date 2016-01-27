@@ -933,14 +933,14 @@ require Fake::File::That::Better::Not::Exist::SAGSDGDS;
     );
 };
 
-subtest _optimal_import => sub {
+subtest optimal_import => sub {
     {
         package Fake::ForOptimal::A;
         our @EXPORT = qw/foo &bar $ZAP %ZAP @ZAP/;
         sub foo { 'foo' }
         sub bar { 'bar' }
     }
-    my $optimal = $CLASS->can('_optimal_import');
+    my $optimal = $CLASS->can('optimal_import');
 
     ok($optimal->('Fake::ForOptimal::A', 'FDestA', ['F', 'F.pm', 4], qw/foo/), "Success");
     can_ok('FDestA', 'foo');
