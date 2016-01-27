@@ -12,12 +12,12 @@ my %SIG_TO_SLOT = (
     '*' => 'GLOB',
 );
 
-our @EXPORT_OK = qw/optimal_import/;
-
 our %IMPORTED;
 
 # This will be used to check if an import arg is a version number
 my %NUMERIC = map +($_ => 1), 0 .. 9;
+
+sub IMPORTER_MENU() {(export_ok => [qw/optimal_import/])}
 
 ###########################################################################
 #
