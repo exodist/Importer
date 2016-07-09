@@ -11,10 +11,6 @@ extras. You can use this to import symbols from any exporter that follows
 or inherit from the [Exporter](https://metacpan.org/pod/Exporter) module, they just need to set `@EXPORT` and/or
 other variables.
 
-# \*\*\* EXPERIMENTAL \*\*\*
-
-This module is still experimental. Anything can change at any time.
-
 # SYNOPSYS
 
     # Import defaults
@@ -35,6 +31,15 @@ This module is still experimental. Anything can change at any time.
 
     # Remove all subroutines imported by Importer
     no Importer;
+
+    # Import symbols into variables
+    my $croak = Importer->get_one(Carp => qw/croak/);
+    $croak->("This will croak");
+
+    my $CARP = Importer->get(Carp => qw/croak confess cluck/);
+    $CARP->{croak}->("This will croak");
+    $CARP->{cluck}->("This will cluck");
+    $CARP->{confess}->("This will confess");
 
 # WHY?
 
@@ -120,6 +125,33 @@ feature (like import renaming).
 
         $CARP{cluck}->("This will cluck");
         $CARP{croak}->("This will croak");
+
+    The first two arguments to the custom sub are the name (no sigil), and the
+    reference. The additional arguments are key/value pairs:
+
+        sub set_symbol {
+            my ($name, $ref, %info) = @_;
+        }
+
+    - $info{from}
+
+        Package the symbol comes from.
+
+    - $info{into}
+
+        Package to which the symbol should be added.
+
+    - $info{sig}
+
+        The sigil that should be used.
+
+    - $info{spec}
+
+        Extra details.
+
+    - $info{symbol}
+
+        The original symbol name (with sigil) from the original package.
 
 - @SYMBOLS (optional)
 
@@ -230,6 +262,13 @@ This module supports tags exactly the way [Exporter](https://metacpan.org/pod/Ex
 
     use Importer 'Other::Thing' => ':some_tag';
 
+Tags can be specified this way:
+
+    our %EXPORT_TAGS = (
+        oos => [qw/foo boo zoo/],
+        ees => [qw/fee bee zee/],
+    );
+
 ## @EXPORT\_FAIL
 
 This is used exactly the way [Exporter](https://metacpan.org/pod/Exporter) uses it.
@@ -269,11 +308,35 @@ not include sigil for subs).
 
     our %EXPORT_GEN = (
         '&foo' => sub {
+            my $from_package = shift;
             my ($into_package, $symbol_name) = @_;
             ...
             return sub { ... };
         },
         ...
+    );
+
+## %EXPORT\_MAGIC
+
+This is new to this module. [Exporter](https://metacpan.org/pod/Exporter) does not support it.
+
+This allows you to define custom actions to run AFTER an export has been
+injected into the consumers namespace. This is a good place to enable parser
+hooks like with [Devel::Declare](https://metacpan.org/pod/Devel::Declare). These will NOT be run if a consumer uses a
+custom assignment callback.
+
+    our %EXPORT_MAGIC = (
+        foo => sub {
+            my $from = shift;    # Should be the package doing the exporting
+            my %args = @_;
+
+            my $into      = $args{into};         # Package symbol was exported into
+            my $orig_name = $args{orig_name};    # Original name of the export (in the exporter)
+            my $new_name  = $args{new_name};     # Name the symbol was imported as
+            my $ref       = $args{ref};          # The reference to the symbol
+
+            ...; # whatever you want, return is ignored.
+        },
     );
 
 # CLASS METHODS
@@ -336,17 +399,18 @@ to support Importer by putting this sub in your package.
         my ($into, $caller) = @_;
 
         return (
-            export      => \@EXPORT,      # Default exports
-            export_ok   => \@EXPORT_OK,   # Other allowed exports
-            export_tags => \%EXPORT_TAGS, # Define tags
-            export_fail => \@EXPORT_FAIL, # For subs that may not always be available
-            export_anon => \%EXPORT_ANON, # Anonymous symbols to export
+            export       => \@EXPORT,          # Default exports
+            export_ok    => \@EXPORT_OK,       # Other allowed exports
+            export_tags  => \%EXPORT_TAGS,     # Define tags
+            export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
+            export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
+            export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
 
-            generate    => \&GENERATE,    # Sub to generate dynamic exports
-            # OR
-            export_gen  => \%EXPORT_GEN,  # Hash of builders, key is symbol
-                                          # name, value is sub that generates
-                                          # the symbol ref.
+            generate   => \&GENERATE,          # Sub to generate dynamic exports
+                                               # OR
+            export_gen => \%EXPORT_GEN,        # Hash of builders, key is symbol
+                                               # name, value is sub that generates
+                                               # the symbol ref.
         );
     }
 
@@ -385,6 +449,12 @@ over them:
 
     $imp->do_import('Destination::Package');
     $imp->do_import('Another::Destination', @symbols);
+
+Or, maybe more useful:
+
+    my $imp = Importer->new(from => 'Carp');
+    my $croak = $imp->get_one('croak');
+    $croak->("This will croak");
 
 ## OBJECT CONSTRUCTION
 
@@ -476,6 +546,9 @@ over them:
             # to.
             tags => { DEFAULT => [...], foo => [...], ... },
 
+            # Magic to apply
+            magic => { foo => sub { ... }, ... },
+
             # This is a hashref just like 'lookup'. Keys are symbols which may not
             # always be available. If there are no symbols in this category then
             # the value of the 'fail' key will be undef instead of a hashref.
@@ -506,6 +579,23 @@ over them:
     This returns a single reference to a single export. If you provide multiple
     imports then only the LAST one will be used.
 
+# FUNCTIONS
+
+These can be imported:
+
+    use Importer 'Importer' => qw/optimal_import/;
+
+- $bool = optimal\_import($from, $into, \\@caller, @imports)
+
+    This function will attempt to import `@imports` from the `$from` package into
+    the `$into` package. `@caller` needs to have a package name, filename, and
+    line number. If this function fails then no exporting will actually happen.
+
+    If the import is successful this will return true.
+
+    If the import is unsuccessful this will return false, and no modifications to
+    the symbol table will occur.
+
 # SOURCE
 
 The source code repository for symbol can be found at
@@ -513,15 +603,15 @@ The source code repository for symbol can be found at
 
 # MAINTAINERS
 
-- Chad Granum &lt;exodist@cpan.org>
+- Chad Granum <exodist@cpan.org>
 
 # AUTHORS
 
-- Chad Granum &lt;exodist@cpan.org>
+- Chad Granum <exodist@cpan.org>
 
 # COPYRIGHT
 
-Copyright 2015 Chad Granum &lt;exodist7@gmail.com>.
+Copyright 2015 Chad Granum <exodist7@gmail.com>.
 
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
