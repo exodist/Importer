@@ -2,7 +2,7 @@ package Importer;
 use strict qw/vars subs/; # Not refs!
 use warnings; no warnings 'once';
 
-our $VERSION = '0.012';
+our $VERSION = '0.013';
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -581,7 +581,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
         my $new_name = join '' => ($spec->{'-prefix'} || '', $spec->{'-as'} || $name, $spec->{'-postfix'} || '');
 
         # Set the symbol (finally!)
-        $set_symbol->($new_name, $ref);
+        $set_symbol->($new_name, $ref, sig => $sig, symbol => $symbol, into => $into, from => $from, spec => $spec);
 
         # The remaining things get skipped with a custom setter
         next if $custom_set;
@@ -813,6 +813,37 @@ implemented).
 
     $CARP{cluck}->("This will cluck");
     $CARP{croak}->("This will croak");
+
+The first two arguments to the custom sub are the name (no sigil), and the
+reference. The additional arguments are key/value pairs:
+
+    sub set_symbol {
+        my ($name, $ref, %info) = @_;
+    }
+
+=over 4
+
+=item $info{from}
+
+Package the symbol comes from.
+
+=item $info{into}
+
+Package to which the symbol should be added.
+
+=item $info{sig}
+
+The sigil that should be used.
+
+=item $info{spec}
+
+Extra details.
+
+=item $info{symbol}
+
+The original symbol name (with sigil) from the original package.
+
+=back
 
 =item @SYMBOLS (optional)
 
