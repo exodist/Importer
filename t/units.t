@@ -287,7 +287,7 @@ subtest reload_menu => sub {
             {
                 lookup   => {},
                 exports  => {},
-                tags     => { DEFAULT => [] },
+                tags     => { DEFAULT => [], ALL => [] },
                 fail     => undef,
                 generate => undef,
                 magic    => {},
@@ -386,6 +386,7 @@ subtest reload_menu => sub {
                 tags => {
                     b => [qw/bar baz/],
                     DEFAULT => [qw/foo &bar $ZAP %ZAP @ZAP/],
+                    ALL => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
@@ -472,6 +473,7 @@ subtest reload_menu => sub {
                 tags => {
                     b => [qw/bar baz/],
                     DEFAULT => [qw/foo &bar $ZAP %ZAP @ZAP/],
+                    ALL => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},

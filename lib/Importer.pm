@@ -2,7 +2,7 @@ package Importer;
 use strict qw/vars subs/; # Not refs!
 use warnings; no warnings 'once';
 
-our $VERSION = '0.013';
+our $VERSION = '0.014';
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
@@ -399,6 +399,9 @@ sub reload_menu {
         %$export_tags,
         'DEFAULT' => [ @$export ],
     };
+
+    # Add 'ALL' tag unless already specified. We want to normalize it.
+    $tags->{ALL} ||= [ sort grep {m/^[\&\$\@\%\*]/} keys %$lookup ];
 
     my $fail = @$export_fail ? {
         map {
@@ -859,6 +862,10 @@ be used.
 You can define/import subsets of symbols using predefined tags.
 
     use Importer 'Some::Thing' => ':tag';
+
+L<Importer> will automatically populate the C<:DEFAULT> tag for you.
+L<Importer> will also give you an C<:ALL> tag with ALL exports so long as the
+exporter does not define a C<:ALL> tag already.
 
 =head2 /PATTERN/ or qr/PATTERN/
 

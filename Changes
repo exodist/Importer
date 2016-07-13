@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+    - Add :ALL tag when none is pre-defined
+
 0.013     2016-07-09 16:00:05-07:00 America/Los_Angeles
 
     - Add extra params to custom symbol setters
