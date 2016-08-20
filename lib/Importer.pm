@@ -302,50 +302,57 @@ sub reload_menu {
 
     my $from = $self->from;
 
-    my (
-        $export,
-        $export_ok,
-        $export_tags,
-        $export_fail,
-        $generate,
-        $export_gen,
-        $export_anon,
-        $export_magic,
-        $new_style
-    );
-
     if (my $menu_sub = *{"$from\::IMPORTER_MENU"}{CODE}) {
         # Hook, other exporter modules can define this method to be compatible with
         # Importer.pm
 
-        $new_style = 1;
-
         my %got = $from->$menu_sub($into, $self->get_caller);
-        $export       = $got{export}       || [];
-        $export_ok    = $got{export_ok}    || [];
-        $export_tags  = $got{export_tags}  || {};
-        $export_fail  = $got{export_fail}  || [];
-        $export_anon  = $got{export_anon}  || {};
-        $export_magic = $got{export_magic} || {};
+        $got{new_style} = 1;
 
-        $export_gen = $got{export_gen};
-        $generate   = $got{generate};
+        $got{export}       ||= [];
+        $got{export_ok}    ||= [];
+        $got{export_tags}  ||= {};
+        $got{export_fail}  ||= [];
+        $got{export_anon}  ||= {};
+        $got{export_magic} ||= {};
 
         $self->croak("'$from' provides both 'generate' and 'export_gen' in its IMPORTER_MENU (They are exclusive, module must pick 1)")
-            if $export_gen && $generate;
+            if $got{export_gen} && $got{generate};
 
-        $export_gen ||= {};
+        $got{export_gen} ||= {};
+
+        return $self->_build_menu($into => \%got);
     }
     else {
-        $export       = \@{"$from\::EXPORT"};
-        $export_ok    = \@{"$from\::EXPORT_OK"};
-        $export_tags  = \%{"$from\::EXPORT_TAGS"};
-        $export_fail  = \@{"$from\::EXPORT_FAIL"};
-        $export_gen   = \%{"$from\::EXPORT_GEN"};
-        $export_anon  = \%{"$from\::EXPORT_ANON"};
-        $export_magic = \%{"$from\::EXPORT_MAGIC"};
-    }
+        my %got;
+        $got{export}       = \@{"$from\::EXPORT"};
+        $got{export_ok}    = \@{"$from\::EXPORT_OK"};
+        $got{export_tags}  = \%{"$from\::EXPORT_TAGS"};
+        $got{export_fail}  = \@{"$from\::EXPORT_FAIL"};
+        $got{export_gen}   = \%{"$from\::EXPORT_GEN"};
+        $got{export_anon}  = \%{"$from\::EXPORT_ANON"};
+        $got{export_magic} = \%{"$from\::EXPORT_MAGIC"};
 
+        return $self->_build_menu($into => \%got);
+    }
+}
+
+sub _build_menu {
+    my $self = shift;
+    my ($into, $got) = @_;
+
+    my $from = $self->from;
+
+    my $export       = $got->{export}       || [];
+    my $export_ok    = $got->{export_ok}    || [];
+    my $export_tags  = $got->{export_tags}  || {};
+    my $export_fail  = $got->{export_fail}  || [];
+    my $export_anon  = $got->{export_anon}  || {};
+    my $export_magic = $got->{export_magic} || {};
+    my $export_gen   = $got->{export_gen}   || {};
+    my $new_style    = $got->{new_style}    || 0;
+
+    my $generate = $got->{generate};
     $generate ||= sub {
         my $symbol = shift;
         my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
@@ -500,7 +507,6 @@ sub parse_args {
         # Normalize list, always have a sigil
         my %seen;
         @list = grep !$seen{$_}++, map {m/^\W/ ? $_ : "\&$_" } @list;
-
 
         if ($exc) {
             $exclude{$_} = 1 for @list;
