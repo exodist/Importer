@@ -307,50 +307,51 @@ sub reload_menu {
         # Importer.pm
 
         my %got = $from->$menu_sub($into, $self->get_caller);
-        $got{new_style} = 1;
 
-        $got{export}       ||= [];
-        $got{export_ok}    ||= [];
-        $got{export_tags}  ||= {};
-        $got{export_fail}  ||= [];
-        $got{export_anon}  ||= {};
-        $got{export_magic} ||= {};
+        $got{export}          ||= [];
+        $got{export_ok}       ||= [];
+        $got{export_tags}     ||= {};
+        $got{export_fail}     ||= [];
+        $got{export_anon}     ||= {};
+        $got{export_magic}    ||= {};
+        $got{export_versions} ||= {};
 
         $self->croak("'$from' provides both 'generate' and 'export_gen' in its IMPORTER_MENU (They are exclusive, module must pick 1)")
             if $got{export_gen} && $got{generate};
 
         $got{export_gen} ||= {};
 
-        return $self->_build_menu($into => \%got);
+        return $self->_build_menu($into => \%got, 1);
     }
     else {
         my %got;
-        $got{export}       = \@{"$from\::EXPORT"};
-        $got{export_ok}    = \@{"$from\::EXPORT_OK"};
-        $got{export_tags}  = \%{"$from\::EXPORT_TAGS"};
-        $got{export_fail}  = \@{"$from\::EXPORT_FAIL"};
-        $got{export_gen}   = \%{"$from\::EXPORT_GEN"};
-        $got{export_anon}  = \%{"$from\::EXPORT_ANON"};
-        $got{export_magic} = \%{"$from\::EXPORT_MAGIC"};
+        $got{export}          = \@{"$from\::EXPORT"};
+        $got{export_ok}       = \@{"$from\::EXPORT_OK"};
+        $got{export_tags}     = \%{"$from\::EXPORT_TAGS"};
+        $got{export_fail}     = \@{"$from\::EXPORT_FAIL"};
+        $got{export_gen}      = \%{"$from\::EXPORT_GEN"};
+        $got{export_anon}     = \%{"$from\::EXPORT_ANON"};
+        $got{export_magic}    = \%{"$from\::EXPORT_MAGIC"};
+        $got{export_versions} = \%{"$from\::EXPORT_VERSIONS"};
 
-        return $self->_build_menu($into => \%got);
+        return $self->_build_menu($into => \%got, 0);
     }
 }
 
 sub _build_menu {
     my $self = shift;
-    my ($into, $got) = @_;
+    my ($into, $got, $new_style) = @_;
 
     my $from = $self->from;
 
-    my $export       = $got->{export}       || [];
-    my $export_ok    = $got->{export_ok}    || [];
-    my $export_tags  = $got->{export_tags}  || {};
-    my $export_fail  = $got->{export_fail}  || [];
-    my $export_anon  = $got->{export_anon}  || {};
-    my $export_magic = $got->{export_magic} || {};
-    my $export_gen   = $got->{export_gen}   || {};
-    my $new_style    = $got->{new_style}    || 0;
+    my $export       = $got->{export}          || [];
+    my $export_ok    = $got->{export_ok}       || [];
+    my $export_tags  = $got->{export_tags}     || {};
+    my $export_fail  = $got->{export_fail}     || [];
+    my $export_anon  = $got->{export_anon}     || {};
+    my $export_magic = $got->{export_magic}    || {};
+    my $export_gen   = $got->{export_gen}      || {};
+    my $export_vers  = $got->{export_versions} || {};
 
     my $generate = $got->{generate};
     $generate ||= sub {
@@ -418,6 +419,22 @@ sub _build_menu {
         } @$export_fail
     } : undef;
 
+    my $versions = {
+        v0 => { # Add base as v0, do not use the same hashref to avoid self-refrencing
+            lookup   => $lookup,
+            exports  => $exports,
+            tags     => $tags,
+            fail     => $fail,
+            generate => $generate,
+            magic    => $export_magic,
+        },
+    };
+    for my $v (keys %$export_vers) {
+        my $submenu = $self->_build_menu($into, $export_vers->{$v}, $new_style);
+        $tags->{$v} ||= [ "+$v", @{$submenu->{tags}->{DEFAULT}} ];
+        $versions->{$v} ||= $submenu;
+    }
+
     $self->{menu_for} = $into;
     return $self->{menu} = {
         lookup   => $lookup,
@@ -426,6 +443,7 @@ sub _build_menu {
         fail     => $fail,
         generate => $generate,
         magic    => $export_magic,
+        versions => $versions,
     };
 }
 
@@ -500,13 +518,21 @@ sub parse_args {
             my $pattern = $1;
             @list = sort grep /$1/, keys %{$menu->{lookup}};
         }
+        elsif($lead eq '+') {
+            my $vname = $arg;
+            substr($vname, 0, 1, '');
+
+            $self->croak("$from does not export the +$vname version")
+                unless $menu->{versions}->{$vname};
+
+            @list = ($arg);
+        }
         else {
             @list = ($arg);
         }
 
         # Normalize list, always have a sigil
-        my %seen;
-        @list = grep !$seen{$_}++, map {m/^\W/ ? $_ : "\&$_" } @list;
+        @list = map {m/^\W/ ? $_ : "\&$_" } @list;
 
         if ($exc) {
             $exclude{$_} = 1 for @list;
@@ -549,9 +575,9 @@ sub _set_symbols {
     my $self = shift;
     my ($into, $exclude, $import, $custom_set) = @_;
 
-    my $from   = $self->from;
-    my $menu   = $self->menu($into);
-    my $caller = $self->get_caller();
+    my $from      = $self->from;
+    my $main_menu = $self->menu($into);
+    my $caller    = $self->get_caller();
 
     my $set_symbol = $custom_set || eval <<"    EOT" || die $@;
 # Inherit the callers warning settings. If they have warnings and we
@@ -562,10 +588,17 @@ BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] }
 sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
+    my $menu = $main_menu;
+    my $ver = "";
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
         my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/) or die "Invalid symbol: $symbol";
+        if ($sig eq '+') {
+            $ver = "version-set $name ";
+            $menu = $main_menu->{versions}->{$name};
+            next;
+        }
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -574,7 +607,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
         # Exporter.pm supported listing items in @EXPORT that are not actually
         # available for export. So if it is listed (lookup) but nothing is
         # there (!$ref) we simply skip it.
-        $self->croak("$from does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
+        $self->croak("$from ${ver}does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
         my $type = ref($ref);
@@ -857,7 +890,8 @@ The original symbol name (with sigil) from the original package.
 =item @SYMBOLS (optional)
 
 Symbols you wish to import. If no symbols are specified then the defaults will
-be used.
+be used. You may also specify tags using the ':' prefix, or version-sets using
+the '+' symbol.
 
 =back
 
@@ -872,6 +906,50 @@ You can define/import subsets of symbols using predefined tags.
 L<Importer> will automatically populate the C<:DEFAULT> tag for you.
 L<Importer> will also give you an C<:ALL> tag with ALL exports so long as the
 exporter does not define a C<:ALL> tag already.
+
+=head2 VERSION-SETS
+
+Some exporters may provide version-sets. Version sets are a way for exporters
+to provide alternate versions of exports. This is useful for maintaining
+backwords compatability while providing a path forward.
+
+Importing without specifying a version set uses the default version set, which
+is also called 'v0'.
+
+You can specify an alternate version set with the '+' prefix:
+
+    use Importer 'Some::Thing' => qw/x +v1 a b c +v2 d +v0 y z/;
+
+The code above will import:
+
+=over 4
+
+=item x() from the v0 set (default set)
+
+Since no version was picked the default (v0) is used.
+
+=item a(), b(), and c() from the v1 set
+
+C<+v1> was specified, so the symbols requested after that are pulled from the
+v1 set.
+
+=item d() from the v2 set
+
+C<+v2> was specified, so the symbols requested after that are pulled from the
+v2 set.
+
+=item y() and z() from the v0 set
+
+C<+v0> was specified, so the symbols requested after that are pulled from the
+v0 set.
+
+=back
+
+Not all exporters provide versioned exports, but '+v0' is automatically
+generated and always present.
+
+See L</%EXPORT_VERSIONS> for details on providing version-sets from an
+exporter.
 
 =head2 /PATTERN/ or qr/PATTERN/
 
@@ -1046,6 +1124,47 @@ custom assignment callback.
         },
     );
 
+=head2 %EXPORT_VERSIONS
+
+Export versions lets you provide different versions of exports potentially with
+the same name. This is a good way to maintain backwords compatability while
+also providing a way forward if you have to make backwords incompatible
+changes.
+
+    package My::Thing;
+
+    our %EXPORT_ANON = (
+        foo => \&foo_orig,    # Export the original foo() implementation
+    );
+
+    our %EXPORT_VERSIONS = (
+        v1 => {
+            export_anon => {
+                foo => \&foo_v1,    # Export the v1 variant of foo()
+            },
+        },
+        latest => {
+            export => [qw/foo/],    # Export the latest implementation of foo()
+        },
+    );
+
+To use:
+
+This will import the original implementation
+
+    use Importer 'My::Thing' => qw/foo/;
+
+This will import the v1 variant
+
+    use Importer 'My::Thing' => qw/-v1 foo/;
+
+This will import the v1 latest foo()
+
+    use Importer 'My::Thing' => qw/-latest foo/;
+
+B<NOTE>: Nothing is inherited from the package variables/root menu. Anything
+you want in a specific version must be listed there.
+
 =head1 CLASS METHODS
 
 =over 4
@@ -1117,18 +1236,19 @@ B<IMPORTER_MENU() must be defined in your package, not a base class!>
         my ($into, $caller) = @_;
 
         return (
-            export       => \@EXPORT,          # Default exports
-            export_ok    => \@EXPORT_OK,       # Other allowed exports
-            export_tags  => \%EXPORT_TAGS,     # Define tags
-            export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
-            export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
-            export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
+            export          => \@EXPORT,             # Default exports
+            export_ok       => \@EXPORT_OK,          # Other allowed exports
+            export_tags     => \%EXPORT_TAGS,        # Define tags
+            export_fail     => \@EXPORT_FAIL,        # For subs that may not always be available
+            export_anon     => \%EXPORT_ANON,        # Anonymous symbols to export
+            export_magic    => \%EXPORT_MAGIC,       # Magic to apply after a symbol is exported
+            export_versions => \%EXPORT_VERSIONS,    # Version sets to export
 
-            generate   => \&GENERATE,          # Sub to generate dynamic exports
-                                               # OR
-            export_gen => \%EXPORT_GEN,        # Hash of builders, key is symbol
-                                               # name, value is sub that generates
-                                               # the symbol ref.
+            generate   => \&GENERATE,                # Sub to generate dynamic exports
+                                                     # OR
+            export_gen => \%EXPORT_GEN,              # Hash of builders, key is symbol
+                                                     # name, value is sub that generates
+                                                     # the symbol ref.
         );
     }
 
