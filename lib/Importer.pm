@@ -735,7 +735,7 @@ L<Exporter>s specification. The exporter modules themselves do not need to use
 or inherit from the L<Exporter> module, they just need to set C<@EXPORT> and/or
 other variables.
 
-=head1 SYNOPSYS
+=head1 SYNOPSIS
 
     # Import defaults
     use Importer 'Some::Module';
@@ -777,7 +777,7 @@ addition to others.
 
 Adding a feature to L<Exporter> means that any consumer module that relies on
 the new features must depend on a specific version of L<Exporter>. This seems
-somewhat backwords since L<Exporter> is used by the module you are importing
+somewhat backwards since L<Exporter> is used by the module you are importing
 from.
 
 =item Exporter.pm is really old/crazy code
@@ -806,9 +806,9 @@ override this using the C<IMPORTER_MENU()> hook.
 
 =back
 
-=head1 COMPATABILITY
+=head1 COMPATIBILITY
 
-This module aims for 100% compatabilty with every feature of L<Exporter>, plus
+This module aims for 100% compatibility with every feature of L<Exporter>, plus
 added features such as import renaming.
 
 If you find something that works differently, or not at all when compared to
@@ -911,7 +911,7 @@ exporter does not define a C<:ALL> tag already.
 
 Some exporters may provide version-sets. Version sets are a way for exporters
 to provide alternate versions of exports. This is useful for maintaining
-backwords compatability while providing a path forward.
+backwards compatibility while providing a path forward.
 
 Importing without specifying a version set uses the default version set, which
 is also called 'v0'.
@@ -960,7 +960,7 @@ string starting and ending with '/', or you can provide a C<qr/../> reference.
 
     use Importer 'Some::Thing' => qr/oo/;
 
-=head2 EXLUDING SYMBOLS
+=head2 EXCLUDING SYMBOLS
 
 You can exclude symbols by prefixing them with '!'.
 
@@ -993,7 +993,7 @@ all symbols from the tag/patterm.
 
 =head2 CUSTOM EXPORT ASSIGNMENT
 
-This lets you provide an alternative to the C<*name = $ref> export assingment.
+This lets you provide an alternative to the C<*name = $ref> export assignment.
 See the list of L<parameters|/"IMPORT PARAMETERS"> to C<import()>
 
 =head2 UNIMPORTING
@@ -1087,7 +1087,7 @@ This allows you to export symbols that are generated on export. The key should
 be the name of a symbol. The value should be a coderef that produces a
 reference that will be exported.
 
-When the generators are called they will recieve 2 arguments, the package the
+When the generators are called they will receive 2 arguments, the package the
 symbol is being exported into, and the symbol being imported (name may or may
 not include sigil for subs).
 
@@ -1127,8 +1127,8 @@ custom assignment callback.
 =head2 %EXPORT_VERSIONS
 
 Export versions lets you provide different versions of exports potentially with
-the same name. This is a good way to maintain backwords compatability while
-also providing a way forward if you have to make backwords incompatible
+the same name. This is a good way to maintain backwards compatibility while
+also providing a way forward if you have to make backwards incompatible
 changes.
 
     package My::Thing;
@@ -1331,7 +1331,7 @@ This will remove imported symbols from the objects C<from> package. If you
 specify a list of C<@symbols> then only the specified symbols will be removed,
 otherwise all symbols imported using Importer will be removed.
 
-B<Note:> Please be aware fo the difference between C<do_import()> and
+B<Note:> Please be aware of the difference between C<do_import()> and
 C<do_unimport()>. For import 'from' us used as the origin, in unimport it is
 used as the target. This means you cannot re-use an instance to import and then
 unimport.
