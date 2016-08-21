@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.016     2016-08-20 21:41:34-07:00 America/Los_Angeles (TRIAL RELEASE)
+
     - Add polish to version-sets
     - Add '*' version for common things
     - Do not allow tags or versions inside a version specification
