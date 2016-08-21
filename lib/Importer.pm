@@ -2,7 +2,7 @@ package Importer;
 use strict qw/vars subs/; # Not refs!
 use warnings; no warnings 'once';
 
-our $VERSION = '0.017';
+our $VERSION = '0.018';
 
 my %SIG_TO_SLOT = (
     '&' => 'CODE',
