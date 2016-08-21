@@ -333,6 +333,7 @@ sub reload_menu {
         $got{export_anon}     = \%{"$from\::EXPORT_ANON"};
         $got{export_magic}    = \%{"$from\::EXPORT_MAGIC"};
         $got{export_versions} = \%{"$from\::EXPORT_VERSIONS"};
+        $got{export_on_use}   = \&{"$from\::EXPORT_ON_USE"} if defined *{"$from\::EXPORT_ON_USE"}{CODE};
 
         return $self->_build_menu($into => \%got, 0);
     }
@@ -352,6 +353,8 @@ sub _build_menu {
     my $export_magic = $got->{export_magic}    || {};
     my $export_gen   = $got->{export_gen}      || {};
     my $export_vers  = $got->{export_versions} || {};
+
+    my $export_on_use = $got->{export_on_use};
 
     my $generate = $got->{generate};
     $generate ||= sub {
@@ -428,6 +431,7 @@ sub _build_menu {
             fail     => $fail,
             generate => $generate,
             magic    => $export_magic,
+            on_use   => $export_on_use,
         },
     };
     for my $v (keys %$export_vers) {
@@ -469,10 +473,19 @@ sub _build_menu {
                 }
             }
 
+            $vd->{on_use} ||= $common->{on_use} if $common->{on_use};
+
             # Update the tag added for the version
             my %seen = ();
             @{$tags->{$v}} = grep { !$seen{$_} } @{$tags->{$v}}, @{$common->{tags}->{DEFAULT}};
         }
+
+        for my $tag (qw/DEFAULT ALL/) {
+            my %seen;
+            @{$tags->{$tag}} = grep { !$seen{$_} } @{$tags->{$tag}}, @{$common->{tags}->{$tag}};
+        }
+
+        %$exports = ( %{$common->{exports}}, %$exports );
     }
 
     $self->{menu_for} = $into;
@@ -484,6 +497,7 @@ sub _build_menu {
         generate => $generate,
         magic    => $export_magic,
         versions => $versions,
+        on_use   => $export_on_use,
     };
 }
 
@@ -629,16 +643,21 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
     my $menu = $main_menu;
-    my $ver = "";
+    my $ver = 'v0';
+    my $ver_str = "";
+    my %used;
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
         my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/) or die "Invalid symbol: $symbol";
         if ($sig eq '+') {
-            $ver = "version-set $name ";
+            $ver = $name;
+            $ver_str = "version-set $name ";
             $menu = $main_menu->{versions}->{$name};
             next;
         }
+
+        $menu->{on_use}->($ver) if $menu->{on_use} && !$used{$ver}++;
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -647,7 +666,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
         # Exporter.pm supported listing items in @EXPORT that are not actually
         # available for export. So if it is listed (lookup) but nothing is
         # there (!$ref) we simply skip it.
-        $self->croak("$from ${ver}does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
+        $self->croak("$from ${ver_str}does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
         my $type = ref($ref);
@@ -717,6 +736,7 @@ my %HEAVY_VARS = (
     EXPORT_GEN    => 'HASH',  # Origin package has generators
     EXPORT_ANON   => 'HASH',  # Origin package has anonymous exports
     EXPORT_MAGIC  => 'HASH',  # Origin package has magic to apply post-export
+    EXPORT_ON_ISE => 'CODE',  # Origin package has on-use callback
 );
 
 sub optimal_import {

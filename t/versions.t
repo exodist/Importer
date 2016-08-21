@@ -3,6 +3,8 @@ use warnings;
 
 use Importer 'Test::More';
 
+our %USED;
+
 BEGIN {
     $INC{'My/Exporter.pm'} = 1;
     package My::Exporter;
@@ -10,6 +12,11 @@ BEGIN {
     sub x { 'x' }
     sub y { 'y' }
     sub z { 'z' }
+
+    my $on_use = sub {
+        return unless $main::ON_USE;
+        $main::USED{$_[0]}++;
+    };
 
     sub IMPORTER_MENU {
         return (
@@ -20,10 +27,12 @@ BEGIN {
                 d => sub { 'd0' },
                 e => sub { 'e0' },
             },
+            export_on_use => $on_use,
             export_versions => {
                 '*' => {
                     export => [qw/x/],
                     export_ok => [qw/y z/],
+                    export_on_use => $on_use,
                     generate => sub {
                         my $symbol = shift;
                         my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
@@ -55,6 +64,7 @@ BEGIN {
                 },
                 v2 => {
                     export => [qw/a b c/],
+                    export_on_use => sub { $on_use->(@_), $main::USED{v2_2} = 'yes' },
                     export_anon => {
                         a => sub { 'a2' },
                         b => sub { 'b2' },
@@ -103,6 +113,28 @@ BEGIN {
     ::is(g2(), 'g2', "Used version generate");
 
     ::ok(!__PACKAGE__->can('d'), "Did not import d()");
+}
+
+
+$main::ON_USE = 1;
+{
+    package My::On::Use::A;
+    Importer->import('My::Exporter');
+    ::can_ok(__PACKAGE__, 'x');
+    ::is($main::USED{v0}, 1, "noted that we used v0");
+
+    package My::On::Use::B;
+    Importer->import('My::Exporter');
+    ::is($main::USED{v0}, 2, "noted that we used v0 again");
+
+    package My::On::Use::C;
+    Importer->import('My::Exporter', ':v1');
+    ::is($main::USED{v1}, 1, "noted that we used v1");
+
+    package My::On::Use::D;
+    Importer->import('My::Exporter', ':v2');
+    ::is($main::USED{v2}, 1, "noted that we used v2");
+    ::is($main::USED{v2_2}, 'yes', "Used the v2 specific on_use sub");
 }
 
 done_testing;

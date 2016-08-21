@@ -292,6 +292,7 @@ subtest reload_menu => sub {
                 fail     => undef,
                 generate => undef,
                 magic    => {},
+                on_use   => undef,
             },
             "Got valid, but empty menu"
         );
@@ -392,6 +393,7 @@ subtest reload_menu => sub {
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
+                on_use => undef,
             },
             "Got menu"
         );
@@ -480,6 +482,7 @@ subtest reload_menu => sub {
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
+                on_use => undef,
             },
             "Got menu"
         );
