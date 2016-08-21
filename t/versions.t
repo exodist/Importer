@@ -74,6 +74,20 @@ BEGIN {
             },
         );
     }
+
+    $INC{'My/Exporter2.pm'} = 1;
+    package My::Exporter2;
+
+    sub IMPORTER_MENU {
+        return (
+            export_anon => {
+                foo => sub { 'foo' },
+            },
+            export_versions => {
+                root_name => 'my_root_ver',
+            },
+        );
+    }
 }
 
 {
@@ -115,17 +129,22 @@ BEGIN {
     ::ok(!__PACKAGE__->can('d'), "Did not import d()");
 }
 
+{
+    package My::Importer::D;
+    Importer->import('My::Exporter2', '+my_root_ver', 'foo');
+    ::can_ok(__PACKAGE__, 'foo');
+}
 
 $main::ON_USE = 1;
 {
     package My::On::Use::A;
     Importer->import('My::Exporter');
     ::can_ok(__PACKAGE__, 'x');
-    ::is($main::USED{v0}, 1, "noted that we used v0");
+    ::is($main::USED{'<NO VERSION SPECIFIED>'}, 1, "noted that we used v0");
 
     package My::On::Use::B;
     Importer->import('My::Exporter');
-    ::is($main::USED{v0}, 2, "noted that we used v0 again");
+    ::is($main::USED{'<NO VERSION SPECIFIED>'}, 2, "noted that we used v0 again");
 
     package My::On::Use::C;
     Importer->import('My::Exporter', ':v1');

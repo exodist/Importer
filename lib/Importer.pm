@@ -424,8 +424,9 @@ sub _build_menu {
 
     my $common_v = delete $export_vers->{'*'};
 
+    my $root_ver = delete $export_vers->{'root_name'} || 'v0';
     my $versions = {
-        v0 => { # Add base as v0, do not use the same hashref to avoid self-refrencing
+        $root_ver => { # Add root as v0 or root_name, do not use the same hashref to avoid self-refrencing
             lookup   => $lookup,
             exports  => $exports,
             fail     => $fail,
@@ -643,7 +644,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
     my $menu = $main_menu;
-    my $ver = 'v0';
+    my $ver = '<NO VERSION SPECIFIED>';
     my $ver_str = "";
     my %used;
     for my $set (@$import) {
@@ -974,7 +975,7 @@ to provide alternate versions of exports. This is useful for maintaining
 backwards compatibility while providing a path forward.
 
 Importing without specifying a version set uses the default version set, which
-is also called 'v0'.
+is usually called 'v0', but can be given a different name by an exporter.
 
 You can specify an alternate version set with the '+' prefix:
 
@@ -1006,7 +1007,8 @@ v0 set.
 =back
 
 Not all exporters provide versioned exports, but '+v0' is automatically
-generated and always present.
+generated and always present (though may be given a different name by the
+exporter).
 
 See L</%EXPORT_VERSIONS> for details on providing version-sets from an
 exporter.
@@ -1198,6 +1200,10 @@ changes.
     );
 
     our %EXPORT_VERSIONS = (
+        # The 'root_name' option is special, ot lets you rename 'v0' to
+        # anything you want.
+        root_name => 'v0',
+
         # The '*' version is special, it gets mixed into all versions
         # (including v0 and the root menu).
         '*' => {
