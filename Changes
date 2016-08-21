@@ -1,5 +1,10 @@
 {{$NEXT}}
 
+    - Add polish to version-sets
+    - Add '*' version for common things
+    - Do not allow tags or versions inside a version specification
+    - More documentation for version-sets
+
 0.015     2016-08-20 15:26:23-07:00 America/Los_Angeles (TRIAL RELEASE)
 
     - Add support for version-sets

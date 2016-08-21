@@ -7,6 +7,10 @@ BEGIN {
     $INC{'My/Exporter.pm'} = 1;
     package My::Exporter;
 
+    sub x { 'x' }
+    sub y { 'y' }
+    sub z { 'z' }
+
     sub IMPORTER_MENU {
         return (
             export_anon => {
@@ -17,12 +21,36 @@ BEGIN {
                 e => sub { 'e0' },
             },
             export_versions => {
+                '*' => {
+                    export => [qw/x/],
+                    export_ok => [qw/y z/],
+                    generate => sub {
+                        my $symbol = shift;
+                        my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
+                        $sig ||= '&';
+
+                        return undef unless $sig eq '&';
+                        return undef unless $name eq 'g1';
+
+                        return sub { 'g1' };
+                    },
+                },
                 v1 => {
                     export => [qw/a b c/],
                     export_anon => {
                         a => sub { 'a1' },
                         b => sub { 'b1' },
                         c => sub { 'c1' },
+                    },
+                    generate => sub {
+                        my $symbol = shift;
+                        my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
+                        $sig ||= '&';
+
+                        return undef unless $sig eq '&';
+                        return undef unless $name eq 'g2';
+
+                        return sub { 'g2' };
                     },
                 },
                 v2 => {
@@ -64,11 +92,15 @@ BEGIN {
 
 {
     package My::Importer::C;
-    use Importer 'My::Exporter' => ':v1';
+    use Importer 'My::Exporter' => qw/:v1 g1 g2/;
 
     ::is(a(), 'a1', "got v1 a()");
     ::is(b(), 'b1', "got v1 b()");
     ::is(c(), 'c1', "got v1 c()");
+    ::is(x(), 'x',  "got common x()");
+
+    ::is(g1(), 'g1', "Used common generate");
+    ::is(g2(), 'g2', "Used version generate");
 
     ::ok(!__PACKAGE__->can('d'), "Did not import d()");
 }

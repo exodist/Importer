@@ -419,20 +419,60 @@ sub _build_menu {
         } @$export_fail
     } : undef;
 
+    my $common_v = delete $export_vers->{'*'};
+
     my $versions = {
         v0 => { # Add base as v0, do not use the same hashref to avoid self-refrencing
             lookup   => $lookup,
             exports  => $exports,
-            tags     => $tags,
             fail     => $fail,
             generate => $generate,
             magic    => $export_magic,
         },
     };
     for my $v (keys %$export_vers) {
+        $self->croak("Cannot use 'export_versions' inside a version!")
+            if $export_vers->{$v}->{export_versions};
+
+        $self->croak("Cannot use 'export_tags' inside a version!")
+            if $export_vers->{$v}->{export_tags};
+
         my $submenu = $self->_build_menu($into, $export_vers->{$v}, $new_style);
-        $tags->{$v} ||= [ "+$v", @{$submenu->{tags}->{DEFAULT}} ];
+        delete $submenu->{versions};
+        my $t = delete $submenu->{tags};
+
+        $tags->{$v} ||= [ "+$v", @{$t->{DEFAULT}} ];
         $versions->{$v} ||= $submenu;
+    }
+
+    # This itentionally effects v0 which has the same refs as the root menu
+    if ($common_v) {
+        my $common = $self->_build_menu($into, $common_v, $new_style);
+
+        for my $v (keys %$versions) {
+            my $vd = $versions->{$v};
+
+            # Hashes, easy to mix
+            for my $simple (qw/lookup exports magic fail/) {
+                my $mix = $common->{$simple} || next;
+                my $it  = $vd->{$simple} || {};
+                %$it = (%$mix, %$it);
+            }
+
+            # generate is a sub that returns undef on no match, first use the version one, fallback to common one
+            if (my $cgen = $common->{generate}) {
+                if (my $vgen = $vd->{generate}) {
+                    $vd->{generate} = sub { $vgen->(@_) or $cgen->(@_) };
+                }
+                else {
+                    $vd->{generate} = $cgen;
+                }
+            }
+
+            # Update the tag added for the version
+            my %seen = ();
+            @{$tags->{$v}} = grep { !$seen{$_} } @{$tags->{$v}}, @{$common->{tags}->{DEFAULT}};
+        }
     }
 
     $self->{menu_for} = $into;
@@ -1138,6 +1178,11 @@ changes.
     );
 
     our %EXPORT_VERSIONS = (
+        # The '*' version is special, it gets mixed into all versions
+        # (including v0 and the root menu).
+        '*' => {
+            export => [qw/apple pie/],
+        },
         v1 => {
             export_anon => {
                 foo => \&foo_v1,    # Export the v1 variant of foo()
@@ -1162,8 +1207,45 @@ This will import the v1 latest foo()
 
     use Importer 'My::Thing' => qw/-latest foo/;
 
-B<NOTE>: Nothing is inherited from the package variables/root menu. Anything
-you want in a specific version must be listed there.
+=head3 ALLOWED KEYS FOR VERSION-SET SPECIFICATIONS
+
+=over 4
+
+=item export => \@default_list
+
+Same as C<@EXPORT>, but specific to the version.
+
+=item export_ok => \@allowed_list
+
+Same as C<@EXPORT_OK>, but specific to the version.
+
+=item export_fail => \@fail_list
+
+Same as C<@EXPORT_FAIL>, but specific to the version.
+
+=item export_anon => { name => sub { ... }, ... }
+
+Same as C<%EXPORT_ANON>, but specific to the version.
+
+=item export_magic => { name => sub { ... }, ... }
+
+Same as C<%EXPORT_MAGIC>, but specific to the version.
+
+=item export_gen => { name => sub { return sub { ... } }, ... }
+
+Same as C<%EXPORT_GEN>, but specific to the version.
+
+=back
+
+=head3 NOTES
+
+=over 4
+
+=item Nothing is inherited from the package variables/root menu.
+
+=item The C<'*'> version is mixed into all versions, including root/v0
+
+=back
 
 =head1 CLASS METHODS
 
