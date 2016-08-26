@@ -334,13 +334,13 @@ sub reload_menu {
 
         my %got = $from->$menu_sub($into, $self->get_caller);
 
-        $got{export}          ||= [];
-        $got{export_ok}       ||= [];
-        $got{export_tags}     ||= {};
-        $got{export_fail}     ||= [];
-        $got{export_anon}     ||= {};
-        $got{export_magic}    ||= {};
-        $got{export_versions} ||= {};
+        $got{export}       ||= [];
+        $got{export_ok}    ||= [];
+        $got{export_tags}  ||= {};
+        $got{export_fail}  ||= [];
+        $got{export_anon}  ||= {};
+        $got{export_magic} ||= {};
+        $got{export_pins}  ||= {};
 
         $self->croak("'$from' provides both 'generate' and 'export_gen' in its IMPORTER_MENU (They are exclusive, module must pick 1)")
             if $got{export_gen} && $got{generate};
@@ -351,15 +351,15 @@ sub reload_menu {
     }
     else {
         my %got;
-        $got{export}          = \@{"$from\::EXPORT"};
-        $got{export_ok}       = \@{"$from\::EXPORT_OK"};
-        $got{export_tags}     = \%{"$from\::EXPORT_TAGS"};
-        $got{export_fail}     = \@{"$from\::EXPORT_FAIL"};
-        $got{export_gen}      = \%{"$from\::EXPORT_GEN"};
-        $got{export_anon}     = \%{"$from\::EXPORT_ANON"};
-        $got{export_magic}    = \%{"$from\::EXPORT_MAGIC"};
-        $got{export_versions} = \%{"$from\::EXPORT_VERSIONS"};
-        $got{export_on_use}   = \&{"$from\::EXPORT_ON_USE"} if defined *{"$from\::EXPORT_ON_USE"}{CODE};
+        $got{export}        = \@{"$from\::EXPORT"};
+        $got{export_ok}     = \@{"$from\::EXPORT_OK"};
+        $got{export_tags}   = \%{"$from\::EXPORT_TAGS"};
+        $got{export_fail}   = \@{"$from\::EXPORT_FAIL"};
+        $got{export_gen}    = \%{"$from\::EXPORT_GEN"};
+        $got{export_anon}   = \%{"$from\::EXPORT_ANON"};
+        $got{export_magic}  = \%{"$from\::EXPORT_MAGIC"};
+        $got{export_pins}   = \%{"$from\::EXPORT_PINS"};
+        $got{export_on_use} = \&{"$from\::EXPORT_ON_USE"} if defined *{"$from\::EXPORT_ON_USE"}{CODE};
 
         return $self->_build_menu($into => \%got, 0);
     }
@@ -371,14 +371,14 @@ sub _build_menu {
 
     my $from = $self->from;
 
-    my $export       = $got->{export}          || [];
-    my $export_ok    = $got->{export_ok}       || [];
-    my $export_tags  = $got->{export_tags}     || {};
-    my $export_fail  = $got->{export_fail}     || [];
-    my $export_anon  = $got->{export_anon}     || {};
-    my $export_magic = $got->{export_magic}    || {};
-    my $export_gen   = $got->{export_gen}      || {};
-    my $export_vers  = $got->{export_versions} || {};
+    my $export       = $got->{export}       || [];
+    my $export_ok    = $got->{export_ok}    || [];
+    my $export_tags  = $got->{export_tags}  || {};
+    my $export_fail  = $got->{export_fail}  || [];
+    my $export_anon  = $got->{export_anon}  || {};
+    my $export_magic = $got->{export_magic} || {};
+    my $export_gen   = $got->{export_gen}   || {};
+    my $export_pins  = $got->{export_pins}  || {};
 
     my $export_on_use = $got->{export_on_use};
 
@@ -448,11 +448,11 @@ sub _build_menu {
         } @$export_fail
     } : undef;
 
-    my $common_v = delete $export_vers->{'*'};
+    my $common_pin = delete $export_pins->{'*'};
 
-    my $root_ver = delete $export_vers->{'root_name'} || 'v0';
-    my $versions = {
-        $root_ver => { # Add root as v0 or root_name, do not use the same hashref to avoid self-refrencing
+    my $root_pin = delete $export_pins->{'root_name'} || 'v0';
+    my $pins = {
+        $root_pin => { # Add root as v0 or root_name, do not use the same hashref to avoid self-refrencing
             lookup   => $lookup,
             exports  => $exports,
             fail     => $fail,
@@ -461,50 +461,50 @@ sub _build_menu {
             on_use   => $export_on_use,
         },
     };
-    for my $v (keys %$export_vers) {
-        $self->croak("Cannot use 'export_versions' inside a version!")
-            if $export_vers->{$v}->{export_versions};
+    for my $p (keys %$export_pins) {
+        $self->croak("Cannot use 'export_pins' inside a version!")
+            if $export_pins->{$p}->{export_pins};
 
         $self->croak("Cannot use 'export_tags' inside a version!")
-            if $export_vers->{$v}->{export_tags};
+            if $export_pins->{$p}->{export_tags};
 
-        my $submenu = $self->_build_menu($into, $export_vers->{$v}, $new_style);
-        delete $submenu->{versions};
+        my $submenu = $self->_build_menu($into, $export_pins->{$p}, $new_style);
+        delete $submenu->{pins};
         my $t = delete $submenu->{tags};
 
-        $tags->{$v} ||= [ "+$v", @{$t->{DEFAULT}} ];
-        $versions->{$v} ||= $submenu;
+        $tags->{$p} ||= [ "+$p", @{$t->{DEFAULT}} ];
+        $pins->{$p} ||= $submenu;
     }
 
     # This itentionally effects v0 which has the same refs as the root menu
-    if ($common_v) {
-        my $common = $self->_build_menu($into, $common_v, $new_style);
+    if ($common_pin) {
+        my $common = $self->_build_menu($into, $common_pin, $new_style);
 
-        for my $v (keys %$versions) {
-            my $vd = $versions->{$v};
+        for my $p (keys %$pins) {
+            my $pd = $pins->{$p};
 
             # Hashes, easy to mix
             for my $simple (qw/lookup exports magic fail/) {
                 my $mix = $common->{$simple} || next;
-                my $it  = $vd->{$simple} || {};
+                my $it  = $pd->{$simple} || {};
                 %$it = (%$mix, %$it);
             }
 
             # generate is a sub that returns undef on no match, first use the version one, fallback to common one
             if (my $cgen = $common->{generate}) {
-                if (my $vgen = $vd->{generate}) {
-                    $vd->{generate} = sub { $vgen->(@_) or $cgen->(@_) };
+                if (my $pgen = $pd->{generate}) {
+                    $pd->{generate} = sub { $pgen->(@_) or $cgen->(@_) };
                 }
                 else {
-                    $vd->{generate} = $cgen;
+                    $pd->{generate} = $cgen;
                 }
             }
 
-            $vd->{on_use} ||= $common->{on_use} if $common->{on_use};
+            $pd->{on_use} ||= $common->{on_use} if $common->{on_use};
 
             # Update the tag added for the version
             my %seen = ();
-            @{$tags->{$v}} = grep { !$seen{$_} } @{$tags->{$v}}, @{$common->{tags}->{DEFAULT}};
+            @{$tags->{$p}} = grep { !$seen{$_} } @{$tags->{$p}}, @{$common->{tags}->{DEFAULT}};
         }
 
         for my $tag (qw/DEFAULT ALL/) {
@@ -523,7 +523,7 @@ sub _build_menu {
         fail     => $fail,
         generate => $generate,
         magic    => $export_magic,
-        versions => $versions,
+        pins     => $pins,
         on_use   => $export_on_use,
     };
 }
@@ -600,11 +600,11 @@ sub parse_args {
             @list = sort grep /$1/, keys %{$menu->{lookup}};
         }
         elsif($lead eq '+') {
-            my $vname = $arg;
-            substr($vname, 0, 1, '');
+            my $pname = $arg;
+            substr($pname, 0, 1, '');
 
-            $self->croak("$from does not export the +$vname version")
-                unless $menu->{versions}->{$vname};
+            $self->croak("$from does not export the +$pname pin")
+                unless $menu->{pins}->{$pname};
 
             @list = ($arg);
         }
@@ -670,21 +670,21 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
     my $menu = $main_menu;
-    my $ver = '<NO VERSION SPECIFIED>';
-    my $ver_str = "";
+    my $pin = '<NO PIN SPECIFIED>';
+    my $pin_str = "";
     my %used;
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
         my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/) or die "Invalid symbol: $symbol";
         if ($sig eq '+') {
-            $ver = $name;
-            $ver_str = "version-set $name ";
-            $menu = $main_menu->{versions}->{$name};
+            $pin = $name;
+            $pin_str = "pin $name ";
+            $menu = $main_menu->{pins}->{$name};
             next;
         }
 
-        $menu->{on_use}->($ver) if $menu->{on_use} && !$used{$ver}++;
+        $menu->{on_use}->($pin) if $menu->{on_use} && !$used{$pin}++;
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -693,7 +693,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
         # Exporter.pm supported listing items in @EXPORT that are not actually
         # available for export. So if it is listed (lookup) but nothing is
         # there (!$ref) we simply skip it.
-        $self->croak("$from ${ver_str}does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
+        $self->croak("$from ${pin_str}does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
         my $type = ref($ref);
@@ -758,12 +758,13 @@ require \$file;
 
 
 my %HEAVY_VARS = (
-    IMPORTER_MENU => 'CODE',  # Origin package has a custom menu
-    EXPORT_FAIL   => 'ARRAY', # Origin package has a failure handler
-    EXPORT_GEN    => 'HASH',  # Origin package has generators
-    EXPORT_ANON   => 'HASH',  # Origin package has anonymous exports
-    EXPORT_MAGIC  => 'HASH',  # Origin package has magic to apply post-export
-    EXPORT_ON_ISE => 'CODE',  # Origin package has on-use callback
+    IMPORTER_MENU => 'CODE',     # Origin package has a custom menu
+    EXPORT_FAIL   => 'ARRAY',    # Origin package has a failure handler
+    EXPORT_GEN    => 'HASH',     # Origin package has generators
+    EXPORT_ANON   => 'HASH',     # Origin package has anonymous exports
+    EXPORT_MAGIC  => 'HASH',     # Origin package has magic to apply post-export
+    EXPORT_PINS   => 'HASH',     # Origin package has pins
+    EXPORT_ON_USE => 'CODE',     # Origin package has on-use callback
 );
 
 sub optimal_import {
@@ -977,7 +978,7 @@ The original symbol name (with sigil) from the original package.
 =item @SYMBOLS (optional)
 
 Symbols you wish to import. If no symbols are specified then the defaults will
-be used. You may also specify tags using the ':' prefix, or version-sets using
+be used. You may also specify tags using the ':' prefix, or pins using
 the '+' symbol.
 
 =back
@@ -994,16 +995,16 @@ L<Importer> will automatically populate the C<:DEFAULT> tag for you.
 L<Importer> will also give you an C<:ALL> tag with ALL exports so long as the
 exporter does not define a C<:ALL> tag already.
 
-=head2 VERSION-SETS
+=head2 PINS
 
-Some exporters may provide version-sets. Version sets are a way for exporters
-to provide alternate versions of exports. This is useful for maintaining
-backwards compatibility while providing a path forward.
+Some exporters may provide pins. Pins are a way for exporters to provide
+alternate pinned-versions of exports. This is useful for maintaining backwards
+compatibility while providing a path forward.
 
-Importing without specifying a version set uses the default version set, which
-is usually called 'v0', but can be given a different name by an exporter.
+Importing without specifying a pin uses the default version pin, which is
+usually called 'v0', but can be given a different name by an exporter.
 
-You can specify an alternate version set with the '+' prefix:
+You can specify an alternate pin with the '+' prefix:
 
     use Importer 'Some::Thing' => qw/x +v1 a b c +v2 d +v0 y z/;
 
@@ -1013,31 +1014,30 @@ The code above will import:
 
 =item x() from the v0 set (default set)
 
-Since no version was picked the default (v0) is used.
+Since no pin was picked the default (v0) is used.
 
 =item a(), b(), and c() from the v1 set
 
 C<+v1> was specified, so the symbols requested after that are pulled from the
-v1 set.
+v1 pin.
 
-=item d() from the v2 set
+=item d() from the v2 pin
 
 C<+v2> was specified, so the symbols requested after that are pulled from the
-v2 set.
+v2 pin.
 
 =item y() and z() from the v0 set
 
 C<+v0> was specified, so the symbols requested after that are pulled from the
-v0 set.
+v0 pin.
 
 =back
 
-Not all exporters provide versioned exports, but '+v0' is automatically
+Not all exporters provide pis, but '+v0' is automatically
 generated and always present (though may be given a different name by the
 exporter).
 
-See L</%EXPORT_VERSIONS> for details on providing version-sets from an
-exporter.
+See L</%EXPORT_PINS> for details on providing pins from an exporter.
 
 =head2 /PATTERN/ or qr/PATTERN/
 
@@ -1212,7 +1212,7 @@ custom assignment callback.
         },
     );
 
-=head2 %EXPORT_VERSIONS
+=head2 %EXPORT_PINS
 
 Export versions lets you provide different versions of exports potentially with
 the same name. This is a good way to maintain backwards compatibility while
@@ -1225,7 +1225,7 @@ changes.
         foo => \&foo_orig,    # Export the original foo() implementation
     );
 
-    our %EXPORT_VERSIONS = (
+    our %EXPORT_PINS = (
         # The 'root_name' option is special, ot lets you rename 'v0' to
         # anything you want.
         root_name => 'v0',
@@ -1259,33 +1259,49 @@ This will import the v1 latest foo()
 
     use Importer 'My::Thing' => qw/-latest foo/;
 
-=head3 ALLOWED KEYS FOR VERSION-SET SPECIFICATIONS
+=head2 &EXPORT_ON_USE($pin)
+
+This function will be called the first time an importer selects a pin (or if
+symbols are imported with no pin).
+
+    sub EXPORT_ON_USE {
+        my $pin = shift;
+
+        if ($pin eq '<NO PIN SPECIFIED>') {
+            print "Importing without using a pin.\n";
+        }
+        else {
+            print "Switched to pin $pin.\n"
+        }
+    }
+
+=head3 ALLOWED KEYS FOR PIN SPECIFICATIONS
 
 =over 4
 
 =item export => \@default_list
 
-Same as C<@EXPORT>, but specific to the version.
+Same as C<@EXPORT>, but specific to the pin.
 
 =item export_ok => \@allowed_list
 
-Same as C<@EXPORT_OK>, but specific to the version.
+Same as C<@EXPORT_OK>, but specific to the pin.
 
 =item export_fail => \@fail_list
 
-Same as C<@EXPORT_FAIL>, but specific to the version.
+Same as C<@EXPORT_FAIL>, but specific to the pin.
 
 =item export_anon => { name => sub { ... }, ... }
 
-Same as C<%EXPORT_ANON>, but specific to the version.
+Same as C<%EXPORT_ANON>, but specific to the pin.
 
 =item export_magic => { name => sub { ... }, ... }
 
-Same as C<%EXPORT_MAGIC>, but specific to the version.
+Same as C<%EXPORT_MAGIC>, but specific to the pin.
 
 =item export_gen => { name => sub { return sub { ... } }, ... }
 
-Same as C<%EXPORT_GEN>, but specific to the version.
+Same as C<%EXPORT_GEN>, but specific to the pin.
 
 =back
 
@@ -1295,7 +1311,7 @@ Same as C<%EXPORT_GEN>, but specific to the version.
 
 =item Nothing is inherited from the package variables/root menu.
 
-=item The C<'*'> version is mixed into all versions, including root/v0
+=item The C<'*'> pin is mixed into all pins, including root/v0
 
 =back
 
@@ -1370,19 +1386,19 @@ B<IMPORTER_MENU() must be defined in your package, not a base class!>
         my ($into, $caller) = @_;
 
         return (
-            export          => \@EXPORT,             # Default exports
-            export_ok       => \@EXPORT_OK,          # Other allowed exports
-            export_tags     => \%EXPORT_TAGS,        # Define tags
-            export_fail     => \@EXPORT_FAIL,        # For subs that may not always be available
-            export_anon     => \%EXPORT_ANON,        # Anonymous symbols to export
-            export_magic    => \%EXPORT_MAGIC,       # Magic to apply after a symbol is exported
-            export_versions => \%EXPORT_VERSIONS,    # Version sets to export
+            export       => \@EXPORT,          # Default exports
+            export_ok    => \@EXPORT_OK,       # Other allowed exports
+            export_tags  => \%EXPORT_TAGS,     # Define tags
+            export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
+            export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
+            export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
+            export_pins  => \%EXPORT_PINS,     # Version sets to export
 
-            generate   => \&GENERATE,                # Sub to generate dynamic exports
-                                                     # OR
-            export_gen => \%EXPORT_GEN,              # Hash of builders, key is symbol
-                                                     # name, value is sub that generates
-                                                     # the symbol ref.
+            generate   => \&GENERATE,          # Sub to generate dynamic exports
+                                               # OR
+            export_gen => \%EXPORT_GEN,        # Hash of builders, key is symbol
+                                               # name, value is sub that generates
+                                               # the symbol ref.
         );
     }
 
@@ -1541,6 +1557,20 @@ The menu structure looks like this:
         # symbols listed in 'lookup', but missing from 'exports'. References
         # this returns are NEVER cached.
         generate => sub { my $sym_name = shift; ...; return $symbol_ref },
+
+        # Each pin is nearly a complete menu but without the 'tags' or 'pins'
+        # keys.
+        pins => {
+            name => {
+                lookup   => $lookup,
+                exports  => $exports,
+                fail     => $fail,
+                generate => $generate,
+                magic    => $export_magic,
+                on_use   => $export_on_use,
+            },
+            ...
+        }
     };
 
 =item $imp->reload_menu($into)

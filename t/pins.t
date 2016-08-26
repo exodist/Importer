@@ -28,7 +28,7 @@ BEGIN {
                 e => sub { 'e0' },
             },
             export_on_use => $on_use,
-            export_versions => {
+            export_pins => {
                 '*' => {
                     export => [qw/x/],
                     export_ok => [qw/y z/],
@@ -83,7 +83,7 @@ BEGIN {
             export_anon => {
                 foo => sub { 'foo' },
             },
-            export_versions => {
+            export_pins => {
                 root_name => 'my_root_ver',
             },
         );
@@ -140,11 +140,11 @@ $main::ON_USE = 1;
     package My::On::Use::A;
     Importer->import('My::Exporter');
     ::can_ok(__PACKAGE__, 'x');
-    ::is($main::USED{'<NO VERSION SPECIFIED>'}, 1, "noted that we used v0");
+    ::is($main::USED{'<NO PIN SPECIFIED>'}, 1, "noted that we used v0");
 
     package My::On::Use::B;
     Importer->import('My::Exporter');
-    ::is($main::USED{'<NO VERSION SPECIFIED>'}, 2, "noted that we used v0 again");
+    ::is($main::USED{'<NO PIN SPECIFIED>'}, 2, "noted that we used v0 again");
 
     package My::On::Use::C;
     Importer->import('My::Exporter', ':v1');
