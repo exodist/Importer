@@ -1,5 +1,8 @@
 {{$NEXT}}
 
+    - Rename the 'version-sets' feature to 'pins' to avoid confusions and
+      conflicts
+
 0.018     2016-08-21 16:09:24-07:00 America/Los_Angeles (TRIAL RELEASE)
 
     - Allow renaming of the 'v0' version set
