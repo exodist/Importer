@@ -11,7 +11,7 @@ extras. You can use this to import symbols from any exporter that follows
 or inherit from the [Exporter](https://metacpan.org/pod/Exporter) module, they just need to set `@EXPORT` and/or
 other variables.
 
-# SYNOPSYS
+# SYNOPSIS
 
     # Import defaults
     use Importer 'Some::Module';
@@ -51,7 +51,7 @@ addition to others.
 
     Adding a feature to [Exporter](https://metacpan.org/pod/Exporter) means that any consumer module that relies on
     the new features must depend on a specific version of [Exporter](https://metacpan.org/pod/Exporter). This seems
-    somewhat backwords since [Exporter](https://metacpan.org/pod/Exporter) is used by the module you are importing
+    somewhat backwards since [Exporter](https://metacpan.org/pod/Exporter) is used by the module you are importing
     from.
 
 - Exporter.pm is really old/crazy code
@@ -78,9 +78,9 @@ addition to others.
     variables and methods [Exporter](https://metacpan.org/pod/Exporter) expects. However, other exporters on cpan can
     override this using the `IMPORTER_MENU()` hook.
 
-# COMPATABILITY
+# COMPATIBILITY
 
-This module aims for 100% compatabilty with every feature of [Exporter](https://metacpan.org/pod/Exporter), plus
+This module aims for 100% compatibility with every feature of [Exporter](https://metacpan.org/pod/Exporter), plus
 added features such as import renaming.
 
 If you find something that works differently, or not at all when compared to
@@ -94,7 +94,7 @@ feature (like import renaming).
 - $IMPORTER\_VERSION (optional)
 
     If you provide a numeric argument as the first argument it will be treated as a
-    version number. Importer will d a version check to make sure it is at least at
+    version number. Importer will do a version check to make sure it is at least at
     the requested version.
 
 - $FROM\_MODULE (required)
@@ -156,7 +156,8 @@ feature (like import renaming).
 - @SYMBOLS (optional)
 
     Symbols you wish to import. If no symbols are specified then the defaults will
-    be used.
+    be used. You may also specify tags using the ':' prefix, or pins using
+    the '+' symbol.
 
 # SUPPORTED FEATURES
 
@@ -165,6 +166,50 @@ feature (like import renaming).
 You can define/import subsets of symbols using predefined tags.
 
     use Importer 'Some::Thing' => ':tag';
+
+[Importer](https://metacpan.org/pod/Importer) will automatically populate the `:DEFAULT` tag for you.
+[Importer](https://metacpan.org/pod/Importer) will also give you an `:ALL` tag with ALL exports so long as the
+exporter does not define a `:ALL` tag already.
+
+## PINS
+
+Some exporters may provide pins. Pins are a way for exporters to provide
+alternate pinned-versions of exports. This is useful for maintaining backwards
+compatibility while providing a path forward.
+
+Importing without specifying a pin uses the default version pin, which is
+usually called 'v0', but can be given a different name by an exporter.
+
+You can specify an alternate pin with the '+' prefix:
+
+    use Importer 'Some::Thing' => qw/x +v1 a b c +v2 d +v0 y z/;
+
+The code above will import:
+
+- x() from the v0 set (default set)
+
+    Since no pin was picked the default (v0) is used.
+
+- a(), b(), and c() from the v1 set
+
+    `+v1` was specified, so the symbols requested after that are pulled from the
+    v1 pin.
+
+- d() from the v2 pin
+
+    `+v2` was specified, so the symbols requested after that are pulled from the
+    v2 pin.
+
+- y() and z() from the v0 set
+
+    `+v0` was specified, so the symbols requested after that are pulled from the
+    v0 pin.
+
+Not all exporters provide pis, but '+v0' is automatically
+generated and always present (though may be given a different name by the
+exporter).
+
+See ["%EXPORT\_PINS"](#export_pins) for details on providing pins from an exporter.
 
 ## /PATTERN/ or qr/PATTERN/
 
@@ -175,7 +220,7 @@ string starting and ending with '/', or you can provide a `qr/../` reference.
 
     use Importer 'Some::Thing' => qr/oo/;
 
-## EXLUDING SYMBOLS
+## EXCLUDING SYMBOLS
 
 You can exclude symbols by prefixing them with '!'.
 
@@ -199,7 +244,7 @@ import name:
 You can also add a prefix and/or postfix:
 
     use Importer 'Some::Thing' => (
-        foo => { -prefix => 'my_foo' },
+        foo => { -prefix => 'my_' },
     );
 
 Using this syntax to set prefix and/or postfix also works on tags and patterns
@@ -208,7 +253,7 @@ all symbols from the tag/patterm.
 
 ## CUSTOM EXPORT ASSIGNMENT
 
-This lets you provide an alternative to the `*name = $ref` export assingment.
+This lets you provide an alternative to the `*name = $ref` export assignment.
 See the list of [parameters](#import-parameters) to `import()`
 
 ## UNIMPORTING
@@ -302,7 +347,7 @@ This allows you to export symbols that are generated on export. The key should
 be the name of a symbol. The value should be a coderef that produces a
 reference that will be exported.
 
-When the generators are called they will recieve 2 arguments, the package the
+When the generators are called they will receive 2 arguments, the package the
 symbol is being exported into, and the symbol being imported (name may or may
 not include sigil for subs).
 
@@ -338,6 +383,100 @@ custom assignment callback.
             ...; # whatever you want, return is ignored.
         },
     );
+
+## %EXPORT\_PINS
+
+Export versions lets you provide different versions of exports potentially with
+the same name. This is a good way to maintain backwards compatibility while
+also providing a way forward if you have to make backwards incompatible
+changes.
+
+    package My::Thing;
+
+    our %EXPORT_ANON = (
+        foo => \&foo_orig,    # Export the original foo() implementation
+    );
+
+    our %EXPORT_PINS = (
+        # The 'root_name' option is special, ot lets you rename 'v0' to
+        # anything you want.
+        root_name => 'v0',
+
+        # The '*' version is special, it gets mixed into all versions
+        # (including v0 and the root menu).
+        '*' => {
+            export => [qw/apple pie/],
+        },
+        v1 => {
+            export_anon => {
+                foo => \&foo_v1,    # Export the v1 variant of foo()
+            },
+        },
+        latest => {
+            export => [qw/foo/],    # Export the latest implementation of foo()
+        },
+    );
+
+To use:
+
+This will import the original implementation
+
+    use Importer 'My::Thing' => qw/foo/;
+
+This will import the v1 variant
+
+    use Importer 'My::Thing' => qw/-v1 foo/;
+
+This will import the v1 latest foo()
+
+    use Importer 'My::Thing' => qw/-latest foo/;
+
+## &EXPORT\_ON\_USE($pin)
+
+This function will be called the first time an importer selects a pin (or if
+symbols are imported with no pin).
+
+    sub EXPORT_ON_USE {
+        my $pin = shift;
+
+        if ($pin eq '<NO PIN SPECIFIED>') {
+            print "Importing without using a pin.\n";
+        }
+        else {
+            print "Switched to pin $pin.\n"
+        }
+    }
+
+### ALLOWED KEYS FOR PIN SPECIFICATIONS
+
+- export => \\@default\_list
+
+    Same as `@EXPORT`, but specific to the pin.
+
+- export\_ok => \\@allowed\_list
+
+    Same as `@EXPORT_OK`, but specific to the pin.
+
+- export\_fail => \\@fail\_list
+
+    Same as `@EXPORT_FAIL`, but specific to the pin.
+
+- export\_anon => { name => sub { ... }, ... }
+
+    Same as `%EXPORT_ANON`, but specific to the pin.
+
+- export\_magic => { name => sub { ... }, ... }
+
+    Same as `%EXPORT_MAGIC`, but specific to the pin.
+
+- export\_gen => { name => sub { return sub { ... } }, ... }
+
+    Same as `%EXPORT_GEN`, but specific to the pin.
+
+### NOTES
+
+- Nothing is inherited from the package variables/root menu.
+- The `'*'` pin is mixed into all pins, including root/v0
 
 # CLASS METHODS
 
@@ -405,6 +544,7 @@ to support Importer by putting this sub in your package.
             export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
             export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
             export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
+            export_pins  => \%EXPORT_PINS,     # Version sets to export
 
             generate   => \&GENERATE,          # Sub to generate dynamic exports
                                                # OR
@@ -484,7 +624,7 @@ Or, maybe more useful:
     specify a list of `@symbols` then only the specified symbols will be removed,
     otherwise all symbols imported using Importer will be removed.
 
-    **Note:** Please be aware fo the difference between `do_import()` and
+    **Note:** Please be aware of the difference between `do_import()` and
     `do_unimport()`. For import 'from' us used as the origin, in unimport it is
     used as the target. This means you cannot re-use an instance to import and then
     unimport.
@@ -559,6 +699,20 @@ Or, maybe more useful:
             # symbols listed in 'lookup', but missing from 'exports'. References
             # this returns are NEVER cached.
             generate => sub { my $sym_name = shift; ...; return $symbol_ref },
+
+            # Each pin is nearly a complete menu but without the 'tags' or 'pins'
+            # keys.
+            pins => {
+                name => {
+                    lookup   => $lookup,
+                    exports  => $exports,
+                    fail     => $fail,
+                    generate => $generate,
+                    magic    => $export_magic,
+                    on_use   => $export_on_use,
+                },
+                ...
+            }
         };
 
 - $imp->reload\_menu($into)
@@ -583,7 +737,7 @@ Or, maybe more useful:
 
 These can be imported:
 
-    use Importer 'Importer' => qw/optimal_import/;
+    use Importer 'Importer' => qw/import optimal_import/;
 
 - $bool = optimal\_import($from, $into, \\@caller, @imports)
 
@@ -596,10 +750,23 @@ These can be imported:
     If the import is unsuccessful this will return false, and no modifications to
     the symbol table will occur.
 
+- $class->import(@imports)
+
+    If you write class intended to be used with [Importer](https://metacpan.org/pod/Importer), but also need to
+    provide a legacy `import()` method for direct consumers of your class, you can
+    import this `import()` method.
+
+        package My::Exporter;
+
+        # This will give you 'import()' much like 'use base "Exporter";'
+        use Importer 'Importer' => qw/import/;
+
+        ...
+
 # SOURCE
 
-The source code repository for symbol can be found at
-`http://github.com/exodist/Importer`.
+The source code repository for Importer can be found at
+[http://github.com/exodist/Importer](http://github.com/exodist/Importer).
 
 # MAINTAINERS
 
@@ -616,4 +783,4 @@ Copyright 2015 Chad Granum <exodist7@gmail.com>.
 This program is free software; you can redistribute it and/or
 modify it under the same terms as Perl itself.
 
-See `http://dev.perl.org/licenses/`
+See [http://dev.perl.org/licenses/](http://dev.perl.org/licenses/)
