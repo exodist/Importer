@@ -17,7 +17,33 @@ our %IMPORTED;
 # This will be used to check if an import arg is a version number
 my %NUMERIC = map +($_ => 1), 0 .. 9;
 
-sub IMPORTER_MENU() {(export_ok => [qw/optimal_import/])}
+sub IMPORTER_MENU() {
+    return (
+        export_ok   => [qw/optimal_import/],
+        export_anon => {
+            import => sub {
+                my $class  = shift;
+                my @caller = caller(0);
+
+                _version_check($class, \@caller, shift @_) if @_ && $NUMERIC{substr($_[0], 0, 1)};
+
+                return unless @_;
+
+                my $file = _mod_to_file($class);
+                _load_file(\@caller, $file) unless $INC{$file};
+
+                return if optimal_import($class, $caller[0], \@caller, @_);
+
+                my $self = $class->new(
+                    from   => $class,
+                    caller => \@caller,
+                );
+
+                $self->do_import($caller[0], @_);
+            },
+        },
+    );
+}
 
 ###########################################################################
 #
@@ -1541,7 +1567,7 @@ imports then only the LAST one will be used.
 
 These can be imported:
 
-    use Importer 'Importer' => qw/optimal_import/;
+    use Importer 'Importer' => qw/import optimal_import/;
 
 =over 4
 
@@ -1555,6 +1581,19 @@ If the import is successful this will return true.
 
 If the import is unsuccessful this will return false, and no modifications to
 the symbol table will occur.
+
+=item $class->import(@imports)
+
+If you write class intended to be used with L<Importer>, but also need to
+provide a legacy C<import()> method for direct consumers of your class, you can
+import this C<import()> method.
+
+    package My::Exporter;
+
+    # This will give you 'import()' much like 'use base "Exporter";'
+    use Importer 'Importer' => qw/import/;
+
+    ...
 
 =back
 

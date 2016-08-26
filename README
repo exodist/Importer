@@ -1,8 +1,10 @@
 NAME
+
     Importer - Alternative but compatible interface to modules that export
     symbols.
 
 DESCRIPTION
+
     This module acts as a layer between Exporter and modules which consume
     exports. It is feature-compatible with Exporter, plus some much needed
     extras. You can use this to import symbols from any exporter that
