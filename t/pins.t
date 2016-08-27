@@ -15,7 +15,7 @@ BEGIN {
 
     my $on_use = sub {
         return unless $main::ON_USE;
-        $main::USED{$_[0]}++;
+        $main::USED{$_[0] || '<NO PIN SPECIFIED>'}++;
     };
 
     sub IMPORTER_MENU {
@@ -27,9 +27,11 @@ BEGIN {
                 d => sub { 'd0' },
                 e => sub { 'e0' },
             },
-            export_on_use => $on_use,
+
             export_pins => {
-                '*' => {
+                inherit => 'base',
+
+                base => {
                     export => [qw/x/],
                     export_ok => [qw/y z/],
                     export_on_use => $on_use,
@@ -45,6 +47,7 @@ BEGIN {
                     },
                 },
                 v1 => {
+                    inherit => 'base',
                     export => [qw/a b c/],
                     export_anon => {
                         a => sub { 'a1' },
@@ -63,6 +66,7 @@ BEGIN {
                     },
                 },
                 v2 => {
+                    inherit => 'base',
                     export => [qw/a b c/],
                     export_on_use => sub { $on_use->(@_), $main::USED{v2_2} = 'yes' },
                     export_anon => {

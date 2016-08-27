@@ -347,7 +347,7 @@ sub reload_menu {
 
         $got{export_gen} ||= {};
 
-        return $self->_build_menu($into => \%got, 1);
+        $self->{menu} = $self->_build_menu($into => \%got, 1);
     }
     else {
         my %got;
@@ -361,8 +361,12 @@ sub reload_menu {
         $got{export_pins}   = \%{"$from\::EXPORT_PINS"};
         $got{export_on_use} = \&{"$from\::EXPORT_ON_USE"} if defined *{"$from\::EXPORT_ON_USE"}{CODE};
 
-        return $self->_build_menu($into => \%got, 0);
+        $self->{menu} = $self->_build_menu($into => \%got, 0);
     }
+
+    $self->{menu_for} = $into;
+
+    return $self->{menu};
 }
 
 sub _build_menu {
@@ -376,13 +380,13 @@ sub _build_menu {
     my $export_tags  = $got->{export_tags}  || {};
     my $export_fail  = $got->{export_fail}  || [];
     my $export_anon  = $got->{export_anon}  || {};
-    my $export_magic = $got->{export_magic} || {};
     my $export_gen   = $got->{export_gen}   || {};
-    my $export_pins  = $got->{export_pins}  || {};
+    my $export_magic = $got->{export_magic} || {};
 
+    my $export_pins   = $got->{export_pins};
     my $export_on_use = $got->{export_on_use};
+    my $generate      = $got->{generate};
 
-    my $generate = $got->{generate};
     $generate ||= sub {
         my $symbol = shift;
         my ($sig, $name) = ($symbol =~ m/^(\W?)(.*)$/);
@@ -396,7 +400,7 @@ sub _build_menu {
         $from->$do($into, $symbol);
     } if $export_gen && keys %$export_gen;
 
-    my $lookup = {};
+    my $lookup  = {};
     my $exports = {};
     for my $sym (@$export, @$export_ok, keys %$export_gen, keys %$export_anon) {
         my ($sig, $name) = ($sym =~ m/^(\W?)(.*)$/);
@@ -407,6 +411,7 @@ sub _build_menu {
 
         next if $export_gen->{"${sig}${name}"};
         next if $sig eq '&' && $export_gen->{$name};
+        next if $got->{generate} && $generate->("${sig}${name}");
 
         my $fqn = "$from\::$name";
         # We cannot use *{$fqn}{TYPE} here, it breaks for autoloaded subs, this
@@ -448,75 +453,11 @@ sub _build_menu {
         } @$export_fail
     } : undef;
 
-    my $common_pin = delete $export_pins->{'*'};
-
     my $root_pin = delete $export_pins->{'root_name'} || 'v0';
-    my $pins = {
-        $root_pin => { # Add root as v0 or root_name, do not use the same hashref to avoid self-refrencing
-            lookup   => $lookup,
-            exports  => $exports,
-            fail     => $fail,
-            generate => $generate,
-            magic    => $export_magic,
-            on_use   => $export_on_use,
-        },
-    };
-    for my $p (keys %$export_pins) {
-        $self->croak("Cannot use 'export_pins' inside a version!")
-            if $export_pins->{$p}->{export_pins};
+    my $inherit  = delete $export_pins->{inherit};
+    my $pins = {};
 
-        $self->croak("Cannot use 'export_tags' inside a version!")
-            if $export_pins->{$p}->{export_tags};
-
-        my $submenu = $self->_build_menu($into, $export_pins->{$p}, $new_style);
-        delete $submenu->{pins};
-        my $t = delete $submenu->{tags};
-
-        $tags->{$p} ||= [ "+$p", @{$t->{DEFAULT}} ];
-        $pins->{$p} ||= $submenu;
-    }
-
-    # This itentionally effects v0 which has the same refs as the root menu
-    if ($common_pin) {
-        my $common = $self->_build_menu($into, $common_pin, $new_style);
-
-        for my $p (keys %$pins) {
-            my $pd = $pins->{$p};
-
-            # Hashes, easy to mix
-            for my $simple (qw/lookup exports magic fail/) {
-                my $mix = $common->{$simple} || next;
-                my $it  = $pd->{$simple} || {};
-                %$it = (%$mix, %$it);
-            }
-
-            # generate is a sub that returns undef on no match, first use the version one, fallback to common one
-            if (my $cgen = $common->{generate}) {
-                if (my $pgen = $pd->{generate}) {
-                    $pd->{generate} = sub { $pgen->(@_) or $cgen->(@_) };
-                }
-                else {
-                    $pd->{generate} = $cgen;
-                }
-            }
-
-            $pd->{on_use} ||= $common->{on_use} if $common->{on_use};
-
-            # Update the tag added for the version
-            my %seen = ();
-            @{$tags->{$p}} = grep { !$seen{$_} } @{$tags->{$p}}, @{$common->{tags}->{DEFAULT}};
-        }
-
-        for my $tag (qw/DEFAULT ALL/) {
-            my %seen;
-            @{$tags->{$tag}} = grep { !$seen{$_} } @{$tags->{$tag}}, @{$common->{tags}->{$tag}};
-        }
-
-        %$exports = ( %{$common->{exports}}, %$exports );
-    }
-
-    $self->{menu_for} = $into;
-    return $self->{menu} = {
+    my $menu = {
         lookup   => $lookup,
         exports  => $exports,
         tags     => $tags,
@@ -526,6 +467,77 @@ sub _build_menu {
         pins     => $pins,
         on_use   => $export_on_use,
     };
+
+    my %seen;
+    my @todo = grep {defined($_) && length($_)} ($inherit, $root_pin, keys %$export_pins);
+
+    while (my $p = shift @todo) {
+        my $root = $p eq $root_pin ? 1 : 0;
+
+        my $parent = $root ? $inherit : $export_pins->{$p}->{inherit};
+
+        if ($parent && !$seen{$parent}) {
+            $self->croak("Cycle detected between pins '$p' and '$parent'")
+                if defined $seen{$parent};
+
+            $self->croak("'$parent' pin is not defined, cannot inherit from it.")
+                unless $export_pins->{$parent} || $parent eq $root_pin;
+
+            $seen{$parent} = 0;
+
+            unshift @todo => ($parent, $p);
+            next;
+        }
+
+        next if $seen{$p}++;
+
+        $self->croak("Cannot use 'export_pins' inside a pin!")
+            if $export_pins->{$p}->{export_pins};
+
+        $self->croak("Cannot use 'export_tags' inside a pin!")
+            if $export_pins->{$p}->{export_tags};
+
+        my $submenu = $root ? $menu : $self->_build_menu($into, $export_pins->{$p}, $new_style);
+
+        $tags->{$p} ||= [ "+$p", @{$submenu->{tags}->{DEFAULT}} ];
+        $pins->{$p} ||= $submenu;
+
+        next unless $parent;
+        my $pmenu = $pins->{$parent};
+
+        push @{$tags->{$p}} => @{$pmenu->{tags}->{DEFAULT}};
+
+        if ($root) {
+            push @{$submenu->{tags}->{DEFAULT}} => @{$pmenu->{tags}->{DEFAULT}};
+            push @{$submenu->{tags}->{ALL}} => @{$pmenu->{tags}->{ALL}};
+        }
+
+        # Hashes, easy to mix
+        for my $simple (qw/lookup exports magic fail/) {
+            my $mix = $pmenu->{$simple}   || next;
+            my $it  = $submenu->{$simple} ||= {};
+            %$it = (%$mix, %$it);
+        }
+
+        # generate is a sub that returns undef on no match, first use the pin one, fallback to parent one
+        if (my $pgen = $pmenu->{generate}) {
+            if (my $gen = $submenu->{generate}) {
+                $submenu->{generate} = sub { $gen->(@_) or $pgen->(@_) };
+            }
+            else {
+                $submenu->{generate} = $pgen;
+            }
+        }
+
+        $submenu->{on_use} ||= $pmenu->{on_use} if $pmenu->{on_use};
+
+        %$exports = ( %{$pmenu->{exports}}, %$exports );
+    }
+
+    # Remove Noise
+    delete @{$pins->{$_}}{qw/tags pins/} for grep {$_ ne $root_pin} keys %$pins;
+
+    return $menu;
 }
 
 sub parse_args {
@@ -670,7 +682,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
     my $menu = $main_menu;
-    my $pin = '<NO PIN SPECIFIED>';
+    my $pin  = undef;
     my $pin_str = "";
     my %used;
     for my $set (@$import) {
@@ -684,7 +696,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
             next;
         }
 
-        $menu->{on_use}->($pin) if $menu->{on_use} && !$used{$pin}++;
+        $menu->{on_use}->($pin) if $menu->{on_use} && !$used{$pin || ''}++;
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -1039,6 +1051,21 @@ exporter).
 
 See L</%EXPORT_PINS> for details on providing pins from an exporter.
 
+Note that you can also use pins ('+pin') inside a tag:
+
+    %EXPORT_TAGS = (
+        foo => [ qw/+v0 foo bar +v1 baz/ ],
+    );
+
+The sample above defines the ':foo' tag which imports 'foo' and 'bar' from
+'+v0', as well as 'baz' from '+v1'.
+
+All pins are also automatically given a tag that exports their default list:
+
+    use Foo ':v1';
+
+The sample above will export the default exports for pin '+v1'.
+
 =head2 /PATTERN/ or qr/PATTERN/
 
 You can import all symbols that match a pattern. The pattern can be supplied a
@@ -1229,18 +1256,19 @@ changes.
         # The 'root_name' option is special, ot lets you rename 'v0' to
         # anything you want.
         root_name => 'v0',
+        inherit => 'base_pin',
 
-        # The '*' version is special, it gets mixed into all versions
-        # (including v0 and the root menu).
-        '*' => {
+        'base_pin' => {
             export => [qw/apple pie/],
         },
         v1 => {
+            inherit => 'base_pin',
             export_anon => {
                 foo => \&foo_v1,    # Export the v1 variant of foo()
             },
         },
         latest => {
+            inherit => 'base_pin',
             export => [qw/foo/],    # Export the latest implementation of foo()
         },
     );
@@ -1279,6 +1307,10 @@ symbols are imported with no pin).
 
 =over 4
 
+=item inherit => $pin_name
+
+Allows your pin to inherit from another pin.
+
 =item export => \@default_list
 
 Same as C<@EXPORT>, but specific to the pin.
@@ -1302,16 +1334,6 @@ Same as C<%EXPORT_MAGIC>, but specific to the pin.
 =item export_gen => { name => sub { return sub { ... } }, ... }
 
 Same as C<%EXPORT_GEN>, but specific to the pin.
-
-=back
-
-=head3 NOTES
-
-=over 4
-
-=item Nothing is inherited from the package variables/root menu.
-
-=item The C<'*'> pin is mixed into all pins, including root/v0
 
 =back
 

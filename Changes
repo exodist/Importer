@@ -1,5 +1,10 @@
 {{$NEXT}}
 
+    - Make 'pins' feature more sane
+      - remove '*' in favor of real inheritance
+      - use 'undef' for on_use argument when no pin is provided
+    - Fix bug where menu attribute was reset multiple times using pins
+
 0.019     2016-08-25 22:00:28-07:00 America/Los_Angeles (TRIAL RELEASE)
 
     - Rename the 'version-sets' feature to 'pins' to avoid confusions and

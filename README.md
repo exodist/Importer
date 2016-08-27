@@ -211,6 +211,21 @@ exporter).
 
 See ["%EXPORT\_PINS"](#export_pins) for details on providing pins from an exporter.
 
+Note that you can also use pins ('+pin') inside a tag:
+
+    %EXPORT_TAGS = (
+        foo => [ qw/+v0 foo bar +v1 baz/ ],
+    );
+
+The sample above defines the ':foo' tag which imports 'foo' and 'bar' from
+'+v0', as well as 'baz' from '+v1'.
+
+All pins are also automatically given a tag that exports their default list:
+
+    use Foo ':v1';
+
+The sample above will export the default exports for pin '+v1'.
+
 ## /PATTERN/ or qr/PATTERN/
 
 You can import all symbols that match a pattern. The pattern can be supplied a
@@ -401,18 +416,19 @@ changes.
         # The 'root_name' option is special, ot lets you rename 'v0' to
         # anything you want.
         root_name => 'v0',
+        inherit => 'base_pin',
 
-        # The '*' version is special, it gets mixed into all versions
-        # (including v0 and the root menu).
-        '*' => {
+        'base_pin' => {
             export => [qw/apple pie/],
         },
         v1 => {
+            inherit => 'base_pin',
             export_anon => {
                 foo => \&foo_v1,    # Export the v1 variant of foo()
             },
         },
         latest => {
+            inherit => 'base_pin',
             export => [qw/foo/],    # Export the latest implementation of foo()
         },
     );
@@ -449,6 +465,10 @@ symbols are imported with no pin).
 
 ### ALLOWED KEYS FOR PIN SPECIFICATIONS
 
+- inherit => $pin\_name
+
+    Allows your pin to inherit from another pin.
+
 - export => \\@default\_list
 
     Same as `@EXPORT`, but specific to the pin.
@@ -472,11 +492,6 @@ symbols are imported with no pin).
 - export\_gen => { name => sub { return sub { ... } }, ... }
 
     Same as `%EXPORT_GEN`, but specific to the pin.
-
-### NOTES
-
-- Nothing is inherited from the package variables/root menu.
-- The `'*'` pin is mixed into all pins, including root/v0
 
 # CLASS METHODS
 
