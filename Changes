@@ -1,5 +1,7 @@
 {{$NEXT}}
 
+0.020     2016-08-27 15:32:16-07:00 America/Los_Angeles (TRIAL RELEASE)
+
     - Make 'pins' feature more sane
       - remove '*' in favor of real inheritance
       - use 'undef' for on_use argument when no pin is provided
