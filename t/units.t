@@ -288,7 +288,7 @@ subtest reload_menu => sub {
             {
                 lookup   => {},
                 exports  => {},
-                tags     => { DEFAULT => [], ALL => [], 'v0' => ['+v0'] },
+                tags     => { DEFAULT => [], ALL => [], 'v0' => ['+v0' => []], 'v0:DEFAULT' => ['+v0' => []], 'v0:ALL' => ['+v0' => []] },
                 fail     => undef,
                 generate => undef,
                 magic    => {},
@@ -387,10 +387,13 @@ subtest reload_menu => sub {
                     '%ZAP' => \%Fake::ExporterI::ZAP,
                 },
                 tags => {
-                    b => [qw/bar baz/],
-                    DEFAULT => [qw/foo &bar $ZAP %ZAP @ZAP/],
-                    ALL => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
-                    'v0' => [ '+v0', qw/foo &bar $ZAP %ZAP @ZAP/ ],
+                    'b'          => [qw/bar baz/],
+                    'DEFAULT'    => [qw/foo &bar $ZAP %ZAP @ZAP/],
+                    'ALL'        => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
+                    'v0'         => [ '+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/] ],
+                    'v0:DEFAULT' => [ '+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/]],
+                    'v0:ALL'     => [ '+v0' => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/] ],
+                    'v0:b'       => [ '+v0' => [qw/bar baz/]],
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
@@ -477,10 +480,13 @@ subtest reload_menu => sub {
                     '%ZAP' => \%Fake::ExporterE::ZAP,
                 },
                 tags => {
-                    b => [qw/bar baz/],
-                    DEFAULT => [qw/foo &bar $ZAP %ZAP @ZAP/],
-                    ALL => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
-                    v0  => ['+v0', qw/foo &bar $ZAP %ZAP @ZAP/],
+                    'b'          => [qw/bar baz/],
+                    'DEFAULT'    => [qw/foo &bar $ZAP %ZAP @ZAP/],
+                    'ALL'        => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
+                    'v0'         => ['+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/]],
+                    'v0:DEFAULT' => ['+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/]],
+                    'v0:b'       => ['+v0' => [qw/bar baz/]],
+                    'v0:ALL'     => ['+v0' => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/]],
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
@@ -502,7 +508,13 @@ subtest parse_args => sub {
             return (
                 export      => [qw/foo &bar $ZAP %ZAP @ZAP/],
                 export_ok   => [qw/baz ick missing/],
-                export_tags => {b => [qw/bar baz/]},
+                export_tags => {
+                    b => [qw/bar baz/],
+                    c => [
+                        boo => {'-as' => 'buz', '-prefix' => 'a_', '-postfix' => '_a'},
+                        ':b'
+                    ],
+                },
                 export_fail => [qw/ick/],
                 export_anon => { x => \&__x, z => \&__z },
                 export_gen  => {
@@ -516,6 +528,7 @@ subtest parse_args => sub {
             );
         }
 
+        sub boo { 'boo' }
         sub foo { 'foo' }
         sub bar { 'bar' }
         sub baz { 'baz' }
@@ -670,6 +683,22 @@ subtest parse_args => sub {
             undef,
         ],
         "Spec for pattern"
+    );
+
+    is_deeply(
+        [$one->parse_args('Dest', ':c' => {-prefix => 'b_', -postfix => '_b'})],
+        [
+            'Dest',
+            [],
+            {},
+            [
+                ['&boo', {-as => 'buz', -prefix => 'b_a_', -postfix => '_a_b'}],
+                ['&bar', {-prefix => 'b_', -postfix => '_b'}],
+                ['&baz', {-prefix => 'b_', -postfix => '_b'}],
+            ],
+            undef,
+        ],
+        "Spec for tag with embedded and added specs"
     );
 
     is_deeply(

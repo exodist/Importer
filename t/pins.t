@@ -120,7 +120,7 @@ BEGIN {
 
 {
     package My::Importer::C;
-    use Importer 'My::Exporter' => qw/:v1 g1 g2/;
+    use Importer 'My::Exporter' => qw/:v1 +v1 g1 g2/;
 
     ::is(a(), 'a1', "got v1 a()");
     ::is(b(), 'b1', "got v1 b()");

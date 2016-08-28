@@ -1,5 +1,11 @@
 {{$NEXT}}
 
+    - 'pins' allow multiple inheritence
+    - 'pins' allow +pin => [...]
+    - Allow nesting tags
+    - Allow specs in tags
+    - Saner arg parsing all around
+
 0.020     2016-08-27 15:32:16-07:00 America/Los_Angeles (TRIAL RELEASE)
 
     - Make 'pins' feature more sane

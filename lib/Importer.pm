@@ -453,8 +453,6 @@ sub _build_menu {
         } @$export_fail
     } : undef;
 
-    my $root_pin = delete $export_pins->{'root_name'} || 'v0';
-    my $inherit  = delete $export_pins->{inherit};
     my $pins = {};
 
     my $menu = {
@@ -468,15 +466,22 @@ sub _build_menu {
         on_use   => $export_on_use,
     };
 
+    my $root_pin = delete $export_pins->{'root_name'} || 'v0';
+    my $inherit  = delete $export_pins->{inherit};
+
     my %seen;
     my @todo = grep {defined($_) && length($_)} ($inherit, $root_pin, keys %$export_pins);
 
     while (my $p = shift @todo) {
         my $root = $p eq $root_pin ? 1 : 0;
 
-        my $parent = $root ? $inherit : $export_pins->{$p}->{inherit};
+        my $parents = $root ? $inherit : $export_pins->{$p}->{inherit};
 
-        if ($parent && !$seen{$parent}) {
+        my $need_parent = 0;
+        for my $parent (ref $parents ? (@$parents) : ($parents)) {
+            next unless $parent;
+            next if $seen{$parent};
+
             $self->croak("Cycle detected between pins '$p' and '$parent'")
                 if defined $seen{$parent};
 
@@ -485,53 +490,47 @@ sub _build_menu {
 
             $seen{$parent} = 0;
 
-            unshift @todo => ($parent, $p);
-            next;
+            unshift @todo => $p unless $need_parent++;
+            unshift @todo => $parent;
         }
-
+        next if $need_parent;
         next if $seen{$p}++;
 
         $self->croak("Cannot use 'export_pins' inside a pin!")
             if $export_pins->{$p}->{export_pins};
 
-        $self->croak("Cannot use 'export_tags' inside a pin!")
-            if $export_pins->{$p}->{export_tags};
-
         my $submenu = $root ? $menu : $self->_build_menu($into, $export_pins->{$p}, $new_style);
+        $pins->{$p} = $submenu;
 
-        $tags->{$p} ||= [ "+$p", @{$submenu->{tags}->{DEFAULT}} ];
-        $pins->{$p} ||= $submenu;
+        for my $parent (ref $parents ? (@$parents) : ($parents)) {
+            next unless $parent;
+            my $pmenu = $pins->{$parent};
 
-        next unless $parent;
-        my $pmenu = $pins->{$parent};
+            # Tags
+            unshift @{$submenu->{tags}->{$_}} => @{$pmenu->{tags}->{$_}} for keys %{$pmenu->{tags}};
 
-        push @{$tags->{$p}} => @{$pmenu->{tags}->{DEFAULT}};
-
-        if ($root) {
-            push @{$submenu->{tags}->{DEFAULT}} => @{$pmenu->{tags}->{DEFAULT}};
-            push @{$submenu->{tags}->{ALL}} => @{$pmenu->{tags}->{ALL}};
-        }
-
-        # Hashes, easy to mix
-        for my $simple (qw/lookup exports magic fail/) {
-            my $mix = $pmenu->{$simple}   || next;
-            my $it  = $submenu->{$simple} ||= {};
-            %$it = (%$mix, %$it);
-        }
-
-        # generate is a sub that returns undef on no match, first use the pin one, fallback to parent one
-        if (my $pgen = $pmenu->{generate}) {
-            if (my $gen = $submenu->{generate}) {
-                $submenu->{generate} = sub { $gen->(@_) or $pgen->(@_) };
+            # Hashes, easy to mix
+            for my $simple (qw/lookup exports magic fail/) {
+                my $mix = $pmenu->{$simple} || next;
+                my $it = $submenu->{$simple} ||= {};
+                %$it = (%$mix, %$it);
             }
-            else {
-                $submenu->{generate} = $pgen;
+
+            # generate is a sub that returns undef on no match, first use the pin one, fallback to parent one
+            if (my $pgen = $pmenu->{generate}) {
+                if (my $gen = $submenu->{generate}) {
+                    $submenu->{generate} = sub { $gen->(@_) or $pgen->(@_) };
+                }
+                else {
+                    $submenu->{generate} = $pgen;
+                }
             }
+
+            $submenu->{on_use} ||= $pmenu->{on_use} if $pmenu->{on_use};
         }
 
-        $submenu->{on_use} ||= $pmenu->{on_use} if $pmenu->{on_use};
-
-        %$exports = ( %{$pmenu->{exports}}, %$exports );
+        $tags->{$p} ||= [ "+$p", $submenu->{tags}->{DEFAULT} ];
+        $tags->{"$p\:$_"} ||= [ "+$p", $submenu->{tags}->{$_} ] for grep {$_ ne $root_pin} keys %{$submenu->{tags}}
     }
 
     # Remove Noise
@@ -544,39 +543,82 @@ sub parse_args {
     my $self = shift;
     my ($into, @args) = @_;
 
-    @args = (':DEFAULT') unless @args;
+    my $menu = $self->menu($into);
+
+    my @out = $self->_parse_args($into, $menu, \@args);
+    pop @out;
+    return @out;
+}
+
+sub _parse_args {
+    my $self = shift;
+    my ($into, $menu, $args) = @_;
 
     my $from = $self->from;
-    my $menu = $self->menu($into);
+    my $main_menu = $self->menu($into);
+    $menu ||= $main_menu;
+
+    # First we strip out versions numbers and setters, this simplifies the logic late.
+    my @sets;
+    my @versions;
+    my @leftover;
+    for my $arg (@$args) {
+        no warnings 'void';
+
+        # Code refs are custom setters
+        # If the first character is an ASCII numeric then it is a version number
+        push @sets     => $arg and next if ref($arg) eq 'CODE';
+        push @versions => $arg xor next if $NUMERIC{substr($arg, 0, 1)};
+        push @leftover => $arg;
+    }
+
+    $self->carp("Multiple setters specified, only 1 will be used") if @sets > 1;
+    my $set = pop @sets;
+
+    $args = \@leftover;
+    @$args = (':DEFAULT') unless @$args || @versions;
 
     my %exclude;
     my @import;
-    my @versions;
-    my $set;
 
-    while(my $full_arg = shift @args) {
+    while(my $full_arg = shift @$args) {
         my $arg = $full_arg;
         my $lead = substr($arg, 0, 1);
+
+        # Handle pin selection
+        if ($lead eq '+') {
+            substr($arg, 0, 1, "");
+
+            my $submenu = $main_menu->{pins}->{$arg}
+                or $self->croak("$from does not export the +$arg pin");
+
+            if (ref($args->[0])) {
+                my $subargs = shift @$args;
+                my (undef, $cvers, $cexc, $cimp, $cset) = $self->_parse_args($into, $submenu, $subargs);
+
+                $self->croak("Cannot specify version numbers (" . join(', ', @$cvers) . ") in list given to +$arg pin.")
+                    if @$cvers;
+
+                $self->croak("Cannot specify a custom symbol setter in list given to +$arg pin.")
+                    if $cset;
+
+                push @import => [$full_arg, [$cexc, $cimp]];
+            }
+            else {
+                push @import => [$full_arg, undef];
+                $menu = $submenu;
+            }
+
+            next;
+        }
+
         my ($spec, $exc);
-
-        # If the first character is an ASCII numeric then it is a version number
-        if ($NUMERIC{$lead}) {
-            push @versions => $arg;
-            next;
-        }
-        elsif(ref($arg) eq 'CODE') {
-            $self->carp("Multiple setters specified, only 1 will be used") if $set;
-            $set = $arg;
-            unshift @args => ':DEFAULT' unless @args || @import || keys %exclude || @versions;
-            next;
-        }
-
         if ($lead eq '!') {
             $exc = $lead;
 
             if ($arg eq '!') {
                 # If the current arg is just '!' then we are negating the next item.
-                $arg = shift @args;
+                $arg = shift @$args;
             }
             else {
                 # Strip off the '!'
@@ -585,7 +627,7 @@ sub parse_args {
 
             # Exporter.pm legacy behavior
             # negated first item implies starting with default set:
-            unshift @args => ':DEFAULT' unless @import || keys %exclude || @versions;
+            unshift @$args => ':DEFAULT' unless @import || keys %exclude || @versions;
 
             # Now we have a new lead character
             $lead = substr($arg, 0, 1);
@@ -593,7 +635,51 @@ sub parse_args {
         else {
             # If the item is followed by a reference then they are asking us to
             # do something special...
-            $spec = ref($args[0]) eq 'HASH' ? shift @args : {};
+            $spec = ref($args->[0]) eq 'HASH' ? shift @$args : {};
+        }
+
+        if($lead eq ':') {
+            substr($arg, 0, 1, '');
+            my $tag = $menu->{tags}->{$arg} or $self->croak("$from does not export the :$arg tag");
+
+            my (undef, $cvers, $cexc, $cimp, $cset, $newmenu) = $self->_parse_args($into, $menu, $tag);
+
+            $self->croak("Exporter specified version numbers (" . join(', ', @$cvers) . ") in the :$arg tag!")
+                if @$cvers;
+
+            $self->croak("Exporter specified a custom symbol setter in the :$arg tag!")
+                if $cset;
+
+            # Merge excludes
+            %exclude = (%exclude, %$cexc);
+
+            if ($exc) {
+                $exclude{$_} = 1 for grep {!ref($_) && substr($_, 0, 1) ne '+'} map {$_->[0]} @$cimp;
+            }
+            elsif ($spec && keys %$spec) {
+                $self->croak("Cannot use '-as' to rename multiple symbols included by: $full_arg")
+                    if $spec->{'-as'} && @$cimp > 1;
+
+                for my $set (@$cimp) {
+                    my ($sym, $cspec) = @$set;
+
+                    # Start with a blind squash, spec from tag overrides the ones inside.
+                    my $nspec = {%$cspec, %$spec};
+
+                    $nspec->{'-prefix'}  = "$spec->{'-prefix'}$cspec->{'-prefix'}"   if $spec->{'-prefix'}  && $cspec->{'-prefix'};
+                    $nspec->{'-postfix'} = "$cspec->{'-postfix'}$spec->{'-postfix'}" if $spec->{'-postfix'} && $cspec->{'-postfix'};
+
+                    push @import => [$sym, $nspec];
+                }
+            }
+            else {
+                push @import => @$cimp;
+            }
+
+            # New menu
+            $menu = $newmenu;
+
+            next;
         }
 
         # Process the item to figure out what symbols are being touched, if it
@@ -602,23 +688,9 @@ sub parse_args {
         if(ref($arg) eq 'Regexp') {
             @list = sort grep /$arg/, keys %{$menu->{lookup}};
         }
-        elsif($lead eq ':') {
-            substr($arg, 0, 1, '');
-            my $tag = $menu->{tags}->{$arg} or $self->croak("$from does not export the :$arg tag");
-            @list = @$tag;
-        }
         elsif($lead eq '/' && $arg =~ m{^/(.*)/$}) {
             my $pattern = $1;
             @list = sort grep /$1/, keys %{$menu->{lookup}};
-        }
-        elsif($lead eq '+') {
-            my $pname = $arg;
-            substr($pname, 0, 1, '');
-
-            $self->croak("$from does not export the +$pname pin")
-                unless $menu->{pins}->{$pname};
-
-            @list = ($arg);
         }
         else {
             @list = ($arg);
@@ -638,7 +710,7 @@ sub parse_args {
         }
     }
 
-    return ($into, \@versions, \%exclude, \@import, $set);
+    return ($into, \@versions, \%exclude, \@import, $set, $menu);
 }
 
 sub _handle_fail {
@@ -666,7 +738,7 @@ sub _handle_fail {
 
 sub _set_symbols {
     my $self = shift;
-    my ($into, $exclude, $import, $custom_set) = @_;
+    my ($into, $exclude, $import, $custom_set, $pin, $pin_str, $used, $menu) = @_;
 
     my $from      = $self->from;
     my $main_menu = $self->menu($into);
@@ -681,22 +753,41 @@ BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] }
 sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
-    my $menu = $main_menu;
-    my $pin  = undef;
-    my $pin_str = "";
-    my %used;
+    $menu    ||= $main_menu;
+    $pin_str ||= "";
+    $used    ||= {};
+
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
         my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/) or die "Invalid symbol: $symbol";
+
         if ($sig eq '+') {
-            $pin = $name;
-            $pin_str = "pin $name ";
-            $menu = $main_menu->{pins}->{$name};
+            $self->croak("$from does not export the +$name pin")
+                unless $main_menu->{pins}->{$name};
+
+            if ($spec) {
+                $self->_set_symbols(
+                    $into,
+                    {%$exclude, %{$spec->[0]}},    # %exclude
+                    $spec->[1],                    # @import
+                    $set_symbol,
+                    $name,
+                    "pin $name ",
+                    $used,
+                    $main_menu->{pins}->{$name},
+                );
+            }
+            else {
+                $pin     = $name;
+                $pin_str = "pin $name ";
+                $menu    = $main_menu->{pins}->{$name};
+            }
+
             next;
         }
 
-        $menu->{on_use}->($pin) if $menu->{on_use} && !$used{$pin || ''}++;
+        $menu->{on_use}->($pin) if $menu->{on_use} && !$used->{$pin || ''}++;
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
