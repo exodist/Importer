@@ -552,7 +552,7 @@ sub parse_args {
 
 sub _parse_args {
     my $self = shift;
-    my ($into, $menu, $args) = @_;
+    my ($into, $menu, $args, $is_tag) = @_;
 
     my $from = $self->from;
     my $main_menu = $self->menu($into);
@@ -576,7 +576,7 @@ sub _parse_args {
     my $set = pop @sets;
 
     $args = \@leftover;
-    @$args = (':DEFAULT') unless @$args || @versions;
+    @$args = (':DEFAULT') unless $is_tag || @$args || @versions;
 
     my %exclude;
     my @import;
@@ -642,7 +642,7 @@ sub _parse_args {
             substr($arg, 0, 1, '');
             my $tag = $menu->{tags}->{$arg} or $self->croak("$from does not export the :$arg tag");
 
-            my (undef, $cvers, $cexc, $cimp, $cset, $newmenu) = $self->_parse_args($into, $menu, $tag);
+            my (undef, $cvers, $cexc, $cimp, $cset, $newmenu) = $self->_parse_args($into, $menu, $tag, $arg);
 
             $self->croak("Exporter specified version numbers (" . join(', ', @$cvers) . ") in the :$arg tag!")
                 if @$cvers;
