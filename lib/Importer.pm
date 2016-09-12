@@ -22,20 +22,18 @@ sub IMPORTER_MENU() {
         export_ok   => [qw/optimal_import/],
         export_anon => {
             import => sub {
-                my $class  = shift;
+                my $from  = shift;
                 my @caller = caller(0);
 
-                _version_check($class, \@caller, shift @_) if @_ && $NUMERIC{substr($_[0], 0, 1)};
+                _version_check($from, \@caller, shift @_) if @_ && $NUMERIC{substr($_[0], 0, 1)};
 
-                return unless @_;
-
-                my $file = _mod_to_file($class);
+                my $file = _mod_to_file($from);
                 _load_file(\@caller, $file) unless $INC{$file};
 
-                return if optimal_import($class, $caller[0], \@caller, @_);
+                return if optimal_import($from, $caller[0], \@caller, @_);
 
-                my $self = $class->new(
-                    from   => $class,
+                my $self = __PACKAGE__->new(
+                    from   => $from,
                     caller => \@caller,
                 );
 
