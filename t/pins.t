@@ -15,7 +15,7 @@ BEGIN {
 
     my $on_use = sub {
         return unless $main::ON_USE;
-        $main::USED{$_[0] || '<NO PIN SPECIFIED>'}++;
+        $main::USED{$_[1] || '<NO PIN SPECIFIED>'}++;
     };
 
     sub IMPORTER_MENU {

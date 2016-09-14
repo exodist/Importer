@@ -96,7 +96,11 @@ sub import_into {
 
     my @caller;
 
-    if ($into =~ m/^\d+$/) {
+    if (ref($into)) {
+        @caller = @$into;
+        $into = $caller[0];
+    }
+    elsif ($into =~ m/^\d+$/) {
         @caller = caller($into + 1);
         $into = $caller[0];
     }
@@ -785,7 +789,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
             next;
         }
 
-        $menu->{on_use}->($pin) if $menu->{on_use} && !$used->{$pin || ''}++;
+        $menu->{on_use}->($caller, $pin) if $menu->{on_use} && !$used->{$pin || ''}++;
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -1382,13 +1386,13 @@ This function will be called the first time an importer selects a pin (or if
 symbols are imported with no pin).
 
     sub EXPORT_ON_USE {
-        my $pin = shift;
+        my ($caller, $pin) = @_;
 
-        if ($pin eq '<NO PIN SPECIFIED>') {
-            print "Importing without using a pin.\n";
+        if (!defined($pin)) {
+            print "Importing without using a pin at $caller->[1] line $caller->[2].\n";
         }
         else {
-            print "Switched to pin $pin.\n"
+            print "Switched to pin $pin at $caller->[1] line $caller->[2].\n"
         }
     }
 
@@ -1510,6 +1514,8 @@ B<IMPORTER_MENU() must be defined in your package, not a base class!>
             export_gen => \%EXPORT_GEN,        # Hash of builders, key is symbol
                                                # name, value is sub that generates
                                                # the symbol ref.
+
+            export_on_use => \&on_use,         # on-use callback 
         );
     }
 
