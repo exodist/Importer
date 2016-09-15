@@ -156,8 +156,7 @@ feature (like import renaming).
 - @SYMBOLS (optional)
 
     Symbols you wish to import. If no symbols are specified then the defaults will
-    be used. You may also specify tags using the ':' prefix, or pins using
-    the '+' symbol.
+    be used. You may also specify tags using the ':' prefix.
 
 # SUPPORTED FEATURES
 
@@ -170,61 +169,6 @@ You can define/import subsets of symbols using predefined tags.
 [Importer](https://metacpan.org/pod/Importer) will automatically populate the `:DEFAULT` tag for you.
 [Importer](https://metacpan.org/pod/Importer) will also give you an `:ALL` tag with ALL exports so long as the
 exporter does not define a `:ALL` tag already.
-
-## PINS
-
-Some exporters may provide pins. Pins are a way for exporters to provide
-alternate pinned-versions of exports. This is useful for maintaining backwards
-compatibility while providing a path forward.
-
-Importing without specifying a pin uses the default version pin, which is
-usually called 'v0', but can be given a different name by an exporter.
-
-You can specify an alternate pin with the '+' prefix:
-
-    use Importer 'Some::Thing' => qw/x +v1 a b c +v2 d +v0 y z/;
-
-The code above will import:
-
-- x() from the v0 set (default set)
-
-    Since no pin was picked the default (v0) is used.
-
-- a(), b(), and c() from the v1 set
-
-    `+v1` was specified, so the symbols requested after that are pulled from the
-    v1 pin.
-
-- d() from the v2 pin
-
-    `+v2` was specified, so the symbols requested after that are pulled from the
-    v2 pin.
-
-- y() and z() from the v0 set
-
-    `+v0` was specified, so the symbols requested after that are pulled from the
-    v0 pin.
-
-Not all exporters provide pis, but '+v0' is automatically
-generated and always present (though may be given a different name by the
-exporter).
-
-See ["%EXPORT\_PINS"](#export_pins) for details on providing pins from an exporter.
-
-Note that you can also use pins ('+pin') inside a tag:
-
-    %EXPORT_TAGS = (
-        foo => [ qw/+v0 foo bar +v1 baz/ ],
-    );
-
-The sample above defines the ':foo' tag which imports 'foo' and 'bar' from
-'+v0', as well as 'baz' from '+v1'.
-
-All pins are also automatically given a tag that exports their default list:
-
-    use Foo ':v1';
-
-The sample above will export the default exports for pin '+v1'.
 
 ## /PATTERN/ or qr/PATTERN/
 
@@ -399,100 +343,6 @@ custom assignment callback.
         },
     );
 
-## %EXPORT\_PINS
-
-Export versions lets you provide different versions of exports potentially with
-the same name. This is a good way to maintain backwards compatibility while
-also providing a way forward if you have to make backwards incompatible
-changes.
-
-    package My::Thing;
-
-    our %EXPORT_ANON = (
-        foo => \&foo_orig,    # Export the original foo() implementation
-    );
-
-    our %EXPORT_PINS = (
-        # The 'root_name' option is special, ot lets you rename 'v0' to
-        # anything you want.
-        root_name => 'v0',
-        inherit => 'base_pin',
-
-        'base_pin' => {
-            export => [qw/apple pie/],
-        },
-        v1 => {
-            inherit => 'base_pin',
-            export_anon => {
-                foo => \&foo_v1,    # Export the v1 variant of foo()
-            },
-        },
-        latest => {
-            inherit => 'base_pin',
-            export => [qw/foo/],    # Export the latest implementation of foo()
-        },
-    );
-
-To use:
-
-This will import the original implementation
-
-    use Importer 'My::Thing' => qw/foo/;
-
-This will import the v1 variant
-
-    use Importer 'My::Thing' => qw/-v1 foo/;
-
-This will import the v1 latest foo()
-
-    use Importer 'My::Thing' => qw/-latest foo/;
-
-## &EXPORT\_ON\_USE($pin)
-
-This function will be called the first time an importer selects a pin (or if
-symbols are imported with no pin).
-
-    sub EXPORT_ON_USE {
-        my $pin = shift;
-
-        if ($pin eq '<NO PIN SPECIFIED>') {
-            print "Importing without using a pin.\n";
-        }
-        else {
-            print "Switched to pin $pin.\n"
-        }
-    }
-
-### ALLOWED KEYS FOR PIN SPECIFICATIONS
-
-- inherit => $pin\_name
-
-    Allows your pin to inherit from another pin.
-
-- export => \\@default\_list
-
-    Same as `@EXPORT`, but specific to the pin.
-
-- export\_ok => \\@allowed\_list
-
-    Same as `@EXPORT_OK`, but specific to the pin.
-
-- export\_fail => \\@fail\_list
-
-    Same as `@EXPORT_FAIL`, but specific to the pin.
-
-- export\_anon => { name => sub { ... }, ... }
-
-    Same as `%EXPORT_ANON`, but specific to the pin.
-
-- export\_magic => { name => sub { ... }, ... }
-
-    Same as `%EXPORT_MAGIC`, but specific to the pin.
-
-- export\_gen => { name => sub { return sub { ... } }, ... }
-
-    Same as `%EXPORT_GEN`, but specific to the pin.
-
 # CLASS METHODS
 
 - Importer->import($from)
@@ -559,7 +409,6 @@ to support Importer by putting this sub in your package.
             export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
             export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
             export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
-            export_pins  => \%EXPORT_PINS,     # Version sets to export
 
             generate   => \&GENERATE,          # Sub to generate dynamic exports
                                                # OR
@@ -714,20 +563,6 @@ Or, maybe more useful:
             # symbols listed in 'lookup', but missing from 'exports'. References
             # this returns are NEVER cached.
             generate => sub { my $sym_name = shift; ...; return $symbol_ref },
-
-            # Each pin is nearly a complete menu but without the 'tags' or 'pins'
-            # keys.
-            pins => {
-                name => {
-                    lookup   => $lookup,
-                    exports  => $exports,
-                    fail     => $fail,
-                    generate => $generate,
-                    magic    => $export_magic,
-                    on_use   => $export_on_use,
-                },
-                ...
-            }
         };
 
 - $imp->reload\_menu($into)

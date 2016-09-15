@@ -342,7 +342,6 @@ sub reload_menu {
         $got{export_fail}  ||= [];
         $got{export_anon}  ||= {};
         $got{export_magic} ||= {};
-        $got{export_pins}  ||= {};
 
         $self->croak("'$from' provides both 'generate' and 'export_gen' in its IMPORTER_MENU (They are exclusive, module must pick 1)")
             if $got{export_gen} && $got{generate};
@@ -360,8 +359,6 @@ sub reload_menu {
         $got{export_gen}    = \%{"$from\::EXPORT_GEN"};
         $got{export_anon}   = \%{"$from\::EXPORT_ANON"};
         $got{export_magic}  = \%{"$from\::EXPORT_MAGIC"};
-        $got{export_pins}   = \%{"$from\::EXPORT_PINS"};
-        $got{export_on_use} = \&{"$from\::EXPORT_ON_USE"} if defined *{"$from\::EXPORT_ON_USE"}{CODE};
 
         $self->{menu} = $self->_build_menu($into => \%got, 0);
     }
@@ -385,9 +382,7 @@ sub _build_menu {
     my $export_gen   = $got->{export_gen}   || {};
     my $export_magic = $got->{export_magic} || {};
 
-    my $export_pins   = $got->{export_pins};
-    my $export_on_use = $got->{export_on_use};
-    my $generate      = $got->{generate};
+    my $generate = $got->{generate};
 
     $generate ||= sub {
         my $symbol = shift;
@@ -455,8 +450,6 @@ sub _build_menu {
         } @$export_fail
     } : undef;
 
-    my $pins = {};
-
     my $menu = {
         lookup   => $lookup,
         exports  => $exports,
@@ -464,79 +457,7 @@ sub _build_menu {
         fail     => $fail,
         generate => $generate,
         magic    => $export_magic,
-        pins     => $pins,
-        on_use   => $export_on_use,
     };
-
-    my $root_pin = delete $export_pins->{'root_name'} || 'v0';
-    my $inherit  = delete $export_pins->{inherit};
-
-    my %seen;
-    my @todo = grep {defined($_) && length($_)} ($inherit, $root_pin, keys %$export_pins);
-
-    while (my $p = shift @todo) {
-        my $root = $p eq $root_pin ? 1 : 0;
-
-        my $parents = $root ? $inherit : $export_pins->{$p}->{inherit};
-
-        my $need_parent = 0;
-        for my $parent (ref $parents ? (@$parents) : ($parents)) {
-            next unless $parent;
-            next if $seen{$parent};
-
-            $self->croak("Cycle detected between pins '$p' and '$parent'")
-                if defined $seen{$parent};
-
-            $self->croak("'$parent' pin is not defined, cannot inherit from it.")
-                unless $export_pins->{$parent} || $parent eq $root_pin;
-
-            $seen{$parent} = 0;
-
-            unshift @todo => $p unless $need_parent++;
-            unshift @todo => $parent;
-        }
-        next if $need_parent;
-        next if $seen{$p}++;
-
-        $self->croak("Cannot use 'export_pins' inside a pin!")
-            if $export_pins->{$p}->{export_pins};
-
-        my $submenu = $root ? $menu : $self->_build_menu($into, $export_pins->{$p}, $new_style);
-        $pins->{$p} = $submenu;
-
-        for my $parent (ref $parents ? (@$parents) : ($parents)) {
-            next unless $parent;
-            my $pmenu = $pins->{$parent};
-
-            # Tags
-            unshift @{$submenu->{tags}->{$_}} => @{$pmenu->{tags}->{$_}} for keys %{$pmenu->{tags}};
-
-            # Hashes, easy to mix
-            for my $simple (qw/lookup exports magic fail/) {
-                my $mix = $pmenu->{$simple} || next;
-                my $it = $submenu->{$simple} ||= {};
-                %$it = (%$mix, %$it);
-            }
-
-            # generate is a sub that returns undef on no match, first use the pin one, fallback to parent one
-            if (my $pgen = $pmenu->{generate}) {
-                if (my $gen = $submenu->{generate}) {
-                    $submenu->{generate} = sub { $gen->(@_) or $pgen->(@_) };
-                }
-                else {
-                    $submenu->{generate} = $pgen;
-                }
-            }
-
-            $submenu->{on_use} ||= $pmenu->{on_use} if $pmenu->{on_use};
-        }
-
-        $tags->{$p} ||= [ "+$p", $submenu->{tags}->{DEFAULT} ];
-        $tags->{"$p\:$_"} ||= [ "+$p", $submenu->{tags}->{$_} ] for grep {$_ ne $root_pin} keys %{$submenu->{tags}}
-    }
-
-    # Remove Noise
-    delete @{$pins->{$_}}{qw/tags pins/} for grep {$_ ne $root_pin} keys %$pins;
 
     return $menu;
 }
@@ -586,33 +507,6 @@ sub _parse_args {
     while(my $full_arg = shift @$args) {
         my $arg = $full_arg;
         my $lead = substr($arg, 0, 1);
-
-        # Handle pin selection
-        if ($lead eq '+') {
-            substr($arg, 0, 1, "");
-
-            my $submenu = $main_menu->{pins}->{$arg}
-                or $self->croak("$from does not export the +$arg pin");
-
-            if (ref($args->[0])) {
-                my $subargs = shift @$args;
-                my (undef, $cvers, $cexc, $cimp, $cset) = $self->_parse_args($into, $submenu, $subargs);
-
-                $self->croak("Cannot specify version numbers (" . join(', ', @$cvers) . ") in list given to +$arg pin.")
-                    if @$cvers;
-
-                $self->croak("Cannot specify a custom symbol setter in list given to +$arg pin.")
-                    if $cset;
-
-                push @import => [$full_arg, [$cexc, $cimp]];
-            }
-            else {
-                push @import => [$full_arg, undef];
-                $menu = $submenu;
-            }
-
-            next;
-        }
 
         my ($spec, $exc);
         if ($lead eq '!') {
@@ -740,11 +634,11 @@ sub _handle_fail {
 
 sub _set_symbols {
     my $self = shift;
-    my ($into, $exclude, $import, $custom_set, $pin, $pin_str, $used, $menu) = @_;
+    my ($into, $exclude, $import, $custom_set) = @_;
 
-    my $from      = $self->from;
-    my $main_menu = $self->menu($into);
-    my $caller    = $self->get_caller();
+    my $from   = $self->from;
+    my $menu   = $self->menu($into);
+    my $caller = $self->get_caller();
 
     my $set_symbol = $custom_set || eval <<"    EOT" || die $@;
 # Inherit the callers warning settings. If they have warnings and we
@@ -755,41 +649,10 @@ BEGIN { \${^WARNING_BITS} = \$caller->[9] if defined \$caller->[9] }
 sub { *{"$into\\::\$_[0]"} = \$_[1] }
     EOT
 
-    $menu    ||= $main_menu;
-    $pin_str ||= "";
-    $used    ||= {};
-
     for my $set (@$import) {
         my ($symbol, $spec) = @$set;
 
         my ($sig, $name) = ($symbol =~ m/^(\W)(.*)$/) or die "Invalid symbol: $symbol";
-
-        if ($sig eq '+') {
-            $self->croak("$from does not export the +$name pin")
-                unless $main_menu->{pins}->{$name};
-
-            if ($spec) {
-                $self->_set_symbols(
-                    $into,
-                    {%$exclude, %{$spec->[0]}},    # %exclude
-                    $spec->[1],                    # @import
-                    $set_symbol,
-                    $name,
-                    "pin $name ",
-                    $used,
-                    $main_menu->{pins}->{$name},
-                );
-            }
-            else {
-                $pin     = $name;
-                $pin_str = "pin $name ";
-                $menu    = $main_menu->{pins}->{$name};
-            }
-
-            next;
-        }
-
-        $menu->{on_use}->($caller, $pin) if $menu->{on_use} && !$used->{$pin || ''}++;
 
         # Find the thing we are actually shoving in a new namespace
         my $ref = $menu->{exports}->{$symbol};
@@ -798,7 +661,7 @@ sub { *{"$into\\::\$_[0]"} = \$_[1] }
         # Exporter.pm supported listing items in @EXPORT that are not actually
         # available for export. So if it is listed (lookup) but nothing is
         # there (!$ref) we simply skip it.
-        $self->croak("$from ${pin_str}does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
+        $self->croak("$from does not export $symbol") unless $ref || $menu->{lookup}->{"${sig}${name}"};
         next unless $ref;
 
         my $type = ref($ref);
@@ -868,8 +731,6 @@ my %HEAVY_VARS = (
     EXPORT_GEN    => 'HASH',     # Origin package has generators
     EXPORT_ANON   => 'HASH',     # Origin package has anonymous exports
     EXPORT_MAGIC  => 'HASH',     # Origin package has magic to apply post-export
-    EXPORT_PINS   => 'HASH',     # Origin package has pins
-    EXPORT_ON_USE => 'CODE',     # Origin package has on-use callback
 );
 
 sub optimal_import {
@@ -1083,8 +944,7 @@ The original symbol name (with sigil) from the original package.
 =item @SYMBOLS (optional)
 
 Symbols you wish to import. If no symbols are specified then the defaults will
-be used. You may also specify tags using the ':' prefix, or pins using
-the '+' symbol.
+be used. You may also specify tags using the ':' prefix.
 
 =back
 
@@ -1099,65 +959,6 @@ You can define/import subsets of symbols using predefined tags.
 L<Importer> will automatically populate the C<:DEFAULT> tag for you.
 L<Importer> will also give you an C<:ALL> tag with ALL exports so long as the
 exporter does not define a C<:ALL> tag already.
-
-=head2 PINS
-
-Some exporters may provide pins. Pins are a way for exporters to provide
-alternate pinned-versions of exports. This is useful for maintaining backwards
-compatibility while providing a path forward.
-
-Importing without specifying a pin uses the default version pin, which is
-usually called 'v0', but can be given a different name by an exporter.
-
-You can specify an alternate pin with the '+' prefix:
-
-    use Importer 'Some::Thing' => qw/x +v1 a b c +v2 d +v0 y z/;
-
-The code above will import:
-
-=over 4
-
-=item x() from the v0 set (default set)
-
-Since no pin was picked the default (v0) is used.
-
-=item a(), b(), and c() from the v1 set
-
-C<+v1> was specified, so the symbols requested after that are pulled from the
-v1 pin.
-
-=item d() from the v2 pin
-
-C<+v2> was specified, so the symbols requested after that are pulled from the
-v2 pin.
-
-=item y() and z() from the v0 set
-
-C<+v0> was specified, so the symbols requested after that are pulled from the
-v0 pin.
-
-=back
-
-Not all exporters provide pis, but '+v0' is automatically
-generated and always present (though may be given a different name by the
-exporter).
-
-See L</%EXPORT_PINS> for details on providing pins from an exporter.
-
-Note that you can also use pins ('+pin') inside a tag:
-
-    %EXPORT_TAGS = (
-        foo => [ qw/+v0 foo bar +v1 baz/ ],
-    );
-
-The sample above defines the ':foo' tag which imports 'foo' and 'bar' from
-'+v0', as well as 'baz' from '+v1'.
-
-All pins are also automatically given a tag that exports their default list:
-
-    use Foo ':v1';
-
-The sample above will export the default exports for pin '+v1'.
 
 =head2 /PATTERN/ or qr/PATTERN/
 
@@ -1332,104 +1133,6 @@ custom assignment callback.
         },
     );
 
-=head2 %EXPORT_PINS
-
-Export versions lets you provide different versions of exports potentially with
-the same name. This is a good way to maintain backwards compatibility while
-also providing a way forward if you have to make backwards incompatible
-changes.
-
-    package My::Thing;
-
-    our %EXPORT_ANON = (
-        foo => \&foo_orig,    # Export the original foo() implementation
-    );
-
-    our %EXPORT_PINS = (
-        # The 'root_name' option is special, ot lets you rename 'v0' to
-        # anything you want.
-        root_name => 'v0',
-        inherit => 'base_pin',
-
-        'base_pin' => {
-            export => [qw/apple pie/],
-        },
-        v1 => {
-            inherit => 'base_pin',
-            export_anon => {
-                foo => \&foo_v1,    # Export the v1 variant of foo()
-            },
-        },
-        latest => {
-            inherit => 'base_pin',
-            export => [qw/foo/],    # Export the latest implementation of foo()
-        },
-    );
-
-To use:
-
-This will import the original implementation
-
-    use Importer 'My::Thing' => qw/foo/;
-
-This will import the v1 variant
-
-    use Importer 'My::Thing' => qw/-v1 foo/;
-
-This will import the v1 latest foo()
-
-    use Importer 'My::Thing' => qw/-latest foo/;
-
-=head2 &EXPORT_ON_USE($pin)
-
-This function will be called the first time an importer selects a pin (or if
-symbols are imported with no pin).
-
-    sub EXPORT_ON_USE {
-        my ($caller, $pin) = @_;
-
-        if (!defined($pin)) {
-            print "Importing without using a pin at $caller->[1] line $caller->[2].\n";
-        }
-        else {
-            print "Switched to pin $pin at $caller->[1] line $caller->[2].\n"
-        }
-    }
-
-=head3 ALLOWED KEYS FOR PIN SPECIFICATIONS
-
-=over 4
-
-=item inherit => $pin_name
-
-Allows your pin to inherit from another pin.
-
-=item export => \@default_list
-
-Same as C<@EXPORT>, but specific to the pin.
-
-=item export_ok => \@allowed_list
-
-Same as C<@EXPORT_OK>, but specific to the pin.
-
-=item export_fail => \@fail_list
-
-Same as C<@EXPORT_FAIL>, but specific to the pin.
-
-=item export_anon => { name => sub { ... }, ... }
-
-Same as C<%EXPORT_ANON>, but specific to the pin.
-
-=item export_magic => { name => sub { ... }, ... }
-
-Same as C<%EXPORT_MAGIC>, but specific to the pin.
-
-=item export_gen => { name => sub { return sub { ... } }, ... }
-
-Same as C<%EXPORT_GEN>, but specific to the pin.
-
-=back
-
 =head1 CLASS METHODS
 
 =over 4
@@ -1507,15 +1210,12 @@ B<IMPORTER_MENU() must be defined in your package, not a base class!>
             export_fail  => \@EXPORT_FAIL,     # For subs that may not always be available
             export_anon  => \%EXPORT_ANON,     # Anonymous symbols to export
             export_magic => \%EXPORT_MAGIC,    # Magic to apply after a symbol is exported
-            export_pins  => \%EXPORT_PINS,     # Version sets to export
 
             generate   => \&GENERATE,          # Sub to generate dynamic exports
                                                # OR
             export_gen => \%EXPORT_GEN,        # Hash of builders, key is symbol
                                                # name, value is sub that generates
                                                # the symbol ref.
-
-            export_on_use => \&on_use,         # on-use callback 
         );
     }
 
@@ -1674,20 +1374,6 @@ The menu structure looks like this:
         # symbols listed in 'lookup', but missing from 'exports'. References
         # this returns are NEVER cached.
         generate => sub { my $sym_name = shift; ...; return $symbol_ref },
-
-        # Each pin is nearly a complete menu but without the 'tags' or 'pins'
-        # keys.
-        pins => {
-            name => {
-                lookup   => $lookup,
-                exports  => $exports,
-                fail     => $fail,
-                generate => $generate,
-                magic    => $export_magic,
-                on_use   => $export_on_use,
-            },
-            ...
-        }
     };
 
 =item $imp->reload_menu($into)

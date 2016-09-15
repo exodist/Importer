@@ -282,17 +282,15 @@ subtest reload_menu => sub {
             "All empty menus are the same"
         );
 
-        delete $menu1->{pins}; # too deep to check
         is_deeply(
             $menu1,
             {
                 lookup   => {},
                 exports  => {},
-                tags     => { DEFAULT => [], ALL => [], 'v0' => ['+v0' => []], 'v0:DEFAULT' => ['+v0' => []], 'v0:ALL' => ['+v0' => []] },
+                tags     => { DEFAULT => [], ALL => [] },
                 fail     => undef,
                 generate => undef,
                 magic    => {},
-                on_use   => undef,
             },
             "Got valid, but empty menu"
         );
@@ -355,7 +353,6 @@ subtest reload_menu => sub {
         is($one->{menu_for}, 'fake', "remember who it was generated for");
         ok(my $gen = delete $menu->{generate}, "got a generate function");
 
-        delete $menu->{pins}; # Complicated
         is_deeply(
             $menu,
             {
@@ -390,14 +387,9 @@ subtest reload_menu => sub {
                     'b'          => [qw/bar baz/],
                     'DEFAULT'    => [qw/foo &bar $ZAP %ZAP @ZAP/],
                     'ALL'        => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
-                    'v0'         => [ '+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/] ],
-                    'v0:DEFAULT' => [ '+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/]],
-                    'v0:ALL'     => [ '+v0' => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/] ],
-                    'v0:b'       => [ '+v0' => [qw/bar baz/]],
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
-                on_use => undef,
             },
             "Got menu"
         );
@@ -448,7 +440,6 @@ subtest reload_menu => sub {
         is($one->{menu_for}, 'fake', "remember who it was generated for");
         ok(my $gen = delete $menu->{generate}, "got a generate function");
 
-        delete $menu->{pins};
         is_deeply(
             $menu,
             {
@@ -483,14 +474,9 @@ subtest reload_menu => sub {
                     'b'          => [qw/bar baz/],
                     'DEFAULT'    => [qw/foo &bar $ZAP %ZAP @ZAP/],
                     'ALL'        => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/],
-                    'v0'         => ['+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/]],
-                    'v0:DEFAULT' => ['+v0' => [qw/foo &bar $ZAP %ZAP @ZAP/]],
-                    'v0:b'       => ['+v0' => [qw/bar baz/]],
-                    'v0:ALL'     => ['+v0' => [sort qw/&foo &bar &baz &ick &missing &x &z &gena &genb %ZAP $ZAP @ZAP/]],
                 },
                 fail => { '&ick' => 1, ick => 1 },
                 magic => {},
-                on_use => undef,
             },
             "Got menu"
         );
