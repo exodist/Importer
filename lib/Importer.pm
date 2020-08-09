@@ -1,5 +1,5 @@
 package Importer;
-use strict qw/vars subs/; # Not refs!
+use strict; no strict 'refs';
 use warnings; no warnings 'once';
 
 our $VERSION = '0.026';
