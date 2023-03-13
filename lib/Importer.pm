@@ -491,7 +491,7 @@ sub _parse_args {
         # Code refs are custom setters
         # If the first character is an ASCII numeric then it is a version number
         push @sets     => $arg and next if ref($arg) eq 'CODE';
-        push @versions => $arg xor next if $NUMERIC{substr($arg, 0, 1)};
+        push @versions => $arg and next if $NUMERIC{substr($arg, 0, 1)};
         push @leftover => $arg;
     }
 
